@@ -12,8 +12,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -31,8 +29,14 @@ jobs:
       - run: go test ./...
       - run: node scripts/build-npm.mjs --all
       - name: Publish to npm
-        if: env.NODE_AUTH_TOKEN != ''
-        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN is not configured; skipping npm publish."
+            exit 0
+          fi
+          npm publish --access public --provenance
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
