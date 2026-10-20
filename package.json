@@ -1,0 +1,44 @@
+{
+  "name": "@fikrilal/agy-auth",
+  "version": "0.1.0",
+  "description": "Multi-account switcher for Google Antigravity CLI (agy)",
+  "license": "MIT",
+  "author": "ahmad fikril <fikrildev@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fikrilal/agy-auth.git"
+  },
+  "homepage": "https://github.com/fikrilal/agy-auth#readme",
+  "bugs": {
+    "url": "https://github.com/fikrilal/agy-auth/issues"
+  },
+  "bin": {
+    "agy-auth": "npm/bin/agy-auth.js"
+  },
+  "files": [
+    "npm/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "go build -o bin/agy-auth ./cmd/agy-auth",
+    "dev:prepare": "node scripts/build-npm.mjs --current",
+    "prepack": "node scripts/build-npm.mjs --all",
+    "test": "go test ./..."
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "antigravity",
+    "agy",
+    "agy-cli",
+    "account",
+    "account-switcher",
+    "oauth",
+    "cli"
+  ]
+}

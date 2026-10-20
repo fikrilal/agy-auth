@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Check tag matches package version
+        run: |
+          node -e 'const p=require("./package.json"); const t=process.env.GITHUB_REF_NAME.replace(/^v/,""); if (p.version !== t) { console.error(`package.json version ${p.version} does not match tag ${t}`); process.exit(1); }'
+      - run: go vet ./...
+      - run: go test ./...
+      - run: node scripts/build-npm.mjs --all
+      - name: Publish to npm
+        if: env.NODE_AUTH_TOKEN != ''
+        run: npm publish --access public --provenance
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" npm/vendor/* --title "$GITHUB_REF_NAME" --generate-notes

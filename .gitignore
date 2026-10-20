@@ -1,0 +1,7 @@
+/bin/
+/dist/
+/npm/vendor/
+*.tgz
+*.test
+*.out
+.DS_Store
