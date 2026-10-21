@@ -18,6 +18,13 @@ func (a *App) cmdRemove(args []string) int {
 		return code
 	}
 
+	if *all && fs.NArg() > 0 {
+		return a.usageFor("remove", "remove --all cannot be combined with a query")
+	}
+	if !*all && fs.NArg() == 0 && !a.TTY {
+		return a.usageFor("remove", "specify one or more account queries, or pass --all")
+	}
+
 	reg, err := a.Store.Load()
 	if err != nil {
 		return a.fail("%v", err)
@@ -39,9 +46,6 @@ func (a *App) cmdRemove(args []string) int {
 			selected = append(selected, matches[0])
 		}
 	default:
-		if !a.TTY {
-			return a.fail("specify one or more account queries, or pass --all")
-		}
 		fmt.Fprintln(a.Out, "Stored accounts:")
 		for i, account := range reg.Accounts {
 			marker := " "

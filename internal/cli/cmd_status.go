@@ -14,7 +14,7 @@ func (a *App) cmdStatus(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return a.fail("status takes no arguments")
+		return a.usageFor("status", "status takes no arguments")
 	}
 
 	reg, err := a.Store.Load()

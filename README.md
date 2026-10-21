@@ -196,6 +196,16 @@ Example:
 }
 ```
 
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Operation failed (no stored account, corrupt credential, OAuth failure, and similar) |
+| `2` | Usage error (unknown command or flag, wrong argument count, missing selector) |
+
+Usage errors print `error:`, the command's `Usage:` block, and a `hint:` on stderr.
+
 ## Environment variables
 
 | Variable | Purpose |

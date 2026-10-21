@@ -15,7 +15,7 @@ func (a *App) cmdSwitch(args []string) int {
 		return code
 	}
 	if fs.NArg() > 1 {
-		return a.fail("switch accepts at most one query")
+		return a.usageFor("switch", "switch accepts at most one query")
 	}
 
 	reg, err := a.Store.Load()

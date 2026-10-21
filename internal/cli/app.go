@@ -96,9 +96,7 @@ func (a *App) Run(args []string) int {
 	case "path", "paths":
 		return a.cmdPath(rest)
 	default:
-		fmt.Fprintf(a.Err, "error: unknown command %q\n\n", command)
-		a.printHelp()
-		return 2
+		return a.usageTop("unknown command %q", command)
 	}
 }
 
@@ -119,19 +117,24 @@ func (a *App) extractGlobals(args []string) []string {
 
 func (a *App) newFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(a.Err)
-	fs.Usage = func() { a.printCommandHelp(name) }
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
 	return fs
 }
 
 func (a *App) parseFlags(fs *flag.FlagSet, args []string) (bool, int) {
-	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return false, 0
-		}
-		return false, 2
+	err := fs.Parse(reorderArgs(fs, args))
+	if err == nil {
+		return true, 0
 	}
-	return true, 0
+	if errors.Is(err, flag.ErrHelp) {
+		a.printCommandHelp(fs.Name())
+		return false, 0
+	}
+	if spec := specForName(fs.Name()); spec != nil {
+		return false, a.usage(spec, "%v", err)
+	}
+	return false, a.usageTop("%v", err)
 }
 
 // reorderArgs moves flags before positional arguments. Go's flag package stops
@@ -202,7 +205,7 @@ func (a *App) cmdVersion(args []string) int {
 		return 0
 	}
 	if len(args) > 0 {
-		return a.fail("version takes no arguments")
+		return a.usageFor("version", "version takes no arguments")
 	}
 	if a.JSON {
 		_ = a.emitJSON(map[string]string{"version": Version})

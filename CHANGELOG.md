@@ -13,6 +13,8 @@ All notable changes to this project are documented here.
 
 - CI and release now run the canonical `harness verify --profile ci` gate.
 - Commit messages use Conventional Commits and reject bot co-author trailers.
+- CLI help is generated from a single command specification.
+- Usage errors print `error:`, `Usage:`, and a `hint:` and exit `2`.
 
 ## [0.1.0] - 2026-10-20
 

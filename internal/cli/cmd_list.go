@@ -17,7 +17,7 @@ func (a *App) cmdList(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return a.fail("list takes no arguments")
+		return a.usageFor("list", "list takes no arguments")
 	}
 
 	reg, err := a.Store.Load()
@@ -199,7 +199,7 @@ func (a *App) cmdAdd(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return a.fail("add takes no positional arguments")
+		return a.usageFor("add", "add takes no positional arguments")
 	}
 
 	read, err := a.Storage.Read()
@@ -238,7 +238,7 @@ func (a *App) cmdCurrent(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return a.fail("current takes no arguments")
+		return a.usageFor("current", "current takes no arguments")
 	}
 
 	read, err := a.Storage.Read()

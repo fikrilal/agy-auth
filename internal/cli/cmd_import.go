@@ -20,7 +20,7 @@ func (a *App) cmdImport(args []string) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		return a.fail("import takes exactly one file or directory")
+		return a.usageFor("import", "import takes exactly one file or directory")
 	}
 	path := fs.Arg(0)
 	info, err := os.Stat(path)
@@ -32,7 +32,7 @@ func (a *App) cmdImport(args []string) int {
 	fromDirectory := info.IsDir()
 	if fromDirectory {
 		if *alias != "" || *activate {
-			return a.fail("--alias and --activate only work when importing a single file")
+			return a.usageFor("import", "--alias and --activate only work when importing a single file")
 		}
 		entries, err := os.ReadDir(path)
 		if err != nil {

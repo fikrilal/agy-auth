@@ -231,6 +231,74 @@ func TestCLIHelpAndUnknown(t *testing.T) {
 	}
 }
 
+func TestGeneratedHelpListsEverySpec(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"help"}); code != 0 {
+		t.Fatalf("help exit = %d, stderr = %s", code, errOut)
+	}
+	for _, spec := range commandSpecs {
+		if !strings.Contains(out.String(), spec.Synopsis) {
+			t.Errorf("help output missing %q", spec.Synopsis)
+		}
+	}
+}
+
+func TestUsageErrorsExitTwo(t *testing.T) {
+	env := newTestEnv(t, false)
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"list extra", []string{"list", "extra"}},
+		{"add extra", []string{"add", "extra"}},
+		{"login extra", []string{"login", "extra"}},
+		{"switch two queries", []string{"switch", "one", "two"}},
+		{"remove all plus query", []string{"remove", "--all", "work"}},
+		{"remove missing selector", []string{"remove"}},
+		{"alias missing subcommand", []string{"alias"}},
+		{"alias set missing alias", []string{"alias", "set", "work"}},
+		{"alias list extra", []string{"alias", "list", "extra"}},
+		{"import missing path", []string{"import"}},
+		{"status extra", []string{"status", "extra"}},
+		{"current extra", []string{"current", "extra"}},
+		{"path extra", []string{"path", "extra"}},
+		{"version extra", []string{"version", "extra"}},
+		{"unknown flag", []string{"list", "--nope"}},
+		{"unknown command", []string{"unknown-command"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, _, errOut := env.app("")
+			if code := app.Run(tc.args); code != 2 {
+				t.Fatalf("exit = %d, stderr = %s", code, errOut)
+			}
+			for _, want := range []string{"error:", "Usage:", "hint:"} {
+				if !strings.Contains(errOut.String(), want) {
+					t.Errorf("stderr missing %q: %q", want, errOut.String())
+				}
+			}
+		})
+	}
+}
+
+func TestAliasSubcommandHelp(t *testing.T) {
+	env := newTestEnv(t, false)
+	for _, args := range [][]string{
+		{"alias", "--help"},
+		{"alias", "list", "--help"},
+	} {
+		app, out, errOut := env.app("")
+		if code := app.Run(args); code != 0 {
+			t.Errorf("%v exit = %d, stderr = %s", args, code, errOut)
+			continue
+		}
+		if !strings.Contains(out.String(), "Usage:") {
+			t.Errorf("%v output = %q", args, out.String())
+		}
+	}
+}
+
 func TestReorderArgs(t *testing.T) {
 	fs := newTestFlagSet()
 	got := reorderArgs(fs, []string{"file.json", "--alias", "work"})

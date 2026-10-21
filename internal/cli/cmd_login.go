@@ -24,7 +24,7 @@ func (a *App) cmdLogin(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return a.fail("login takes no positional arguments")
+		return a.usageFor("login", "login takes no positional arguments")
 	}
 	if *viaAgy {
 		return a.loginViaAgy(*alias, *agyPath)

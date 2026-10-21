@@ -8,8 +8,7 @@ import (
 
 func (a *App) cmdAlias(args []string) int {
 	if len(args) == 0 {
-		a.printCommandHelp("alias")
-		return 2
+		return a.usageFor("alias", "alias requires set, clear, or list")
 	}
 	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		a.printCommandHelp("alias")
@@ -23,7 +22,7 @@ func (a *App) cmdAlias(args []string) int {
 	case "list":
 		return a.cmdAliasList(args[1:])
 	default:
-		return a.fail("unknown alias command %q; use set, clear, or list", args[0])
+		return a.usageFor("alias", "unknown alias command %q; use set, clear, or list", args[0])
 	}
 }
 
@@ -33,8 +32,7 @@ func (a *App) cmdAliasSet(args []string) int {
 		return code
 	}
 	if fs.NArg() != 2 {
-		a.printCommandHelp("alias")
-		return 2
+		return a.usageFor("alias", "alias set requires a selector and alias")
 	}
 	reg, err := a.Store.Load()
 	if err != nil {
@@ -67,8 +65,7 @@ func (a *App) cmdAliasClear(args []string) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		a.printCommandHelp("alias")
-		return 2
+		return a.usageFor("alias", "alias clear requires a selector")
 	}
 	reg, err := a.Store.Load()
 	if err != nil {
@@ -101,8 +98,12 @@ func (a *App) cmdAliasClear(args []string) int {
 }
 
 func (a *App) cmdAliasList(args []string) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		a.printCommandHelp("alias")
+		return 0
+	}
 	if len(args) > 0 {
-		return a.fail("alias list takes no arguments")
+		return a.usageFor("alias", "alias list takes no arguments")
 	}
 	reg, err := a.Store.Load()
 	if err != nil {

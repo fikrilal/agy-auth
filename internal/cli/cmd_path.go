@@ -8,7 +8,7 @@ func (a *App) cmdPath(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return a.fail("path takes no arguments")
+		return a.usageFor("path", "path takes no arguments")
 	}
 	payload := map[string]any{
 		"registry":          a.Store.Dir,
