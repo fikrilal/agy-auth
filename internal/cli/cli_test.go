@@ -261,7 +261,9 @@ func TestUsageErrorsExitTwo(t *testing.T) {
 	}{
 		{"list extra", []string{"list", "extra"}},
 		{"add extra", []string{"add", "extra"}},
+		{"add invalid alias", []string{"add", "--alias", "1"}},
 		{"login extra", []string{"login", "extra"}},
+		{"login invalid alias", []string{"login", "--alias", "1"}},
 		{"switch two queries", []string{"switch", "one", "two"}},
 		{"remove all plus query", []string{"remove", "--all", "work"}},
 		{"remove missing selector", []string{"remove"}},
@@ -402,11 +404,14 @@ func TestJSONOperationError(t *testing.T) {
 	if envelope.SchemaVersion != 1 || envelope.Command != "current" {
 		t.Fatalf("unexpected envelope: %+v", envelope)
 	}
-	if envelope.Error == nil || envelope.Error.Code != "operation_failed" {
+	if envelope.Error == nil || envelope.Error.Code != "credential_not_found" {
 		t.Fatalf("unexpected error: %+v", envelope.Error)
 	}
 	if !strings.Contains(envelope.Error.Message, "no agy credentials") {
 		t.Errorf("message = %q", envelope.Error.Message)
+	}
+	if envelope.Error.Hint == "" {
+		t.Errorf("missing hint: %+v", envelope.Error)
 	}
 	if errOut.Len() != 0 {
 		t.Errorf("stderr = %q", errOut.String())
@@ -434,6 +439,205 @@ func TestJSONWarningsStayOnStderr(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "warning: test warning") {
 		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestJSONInteractiveGuards(t *testing.T) {
+	env := newTestEnv(t, false)
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"switch without query", []string{"switch", "--json"}, "requires a query"},
+		{"remove without selection", []string{"remove", "--json"}, "requires one or more queries"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, out, errOut := env.app("")
+			if code := app.Run(tc.args); code != 2 {
+				t.Fatalf("exit = %d, stderr = %s", code, errOut)
+			}
+			envelope := decodeTestEnvelope(t, out)
+			if envelope.Error == nil || envelope.Error.Code != "usage" {
+				t.Fatalf("unexpected error: %+v", envelope.Error)
+			}
+			if !strings.Contains(envelope.Error.Message, tc.want) {
+				t.Errorf("message = %q, want %q", envelope.Error.Message, tc.want)
+			}
+		})
+	}
+}
+
+func TestAmbiguousQueryCandidates(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.JSON = true
+	app.Command = "switch"
+	matches := []registry.Account{
+		{ID: "acct_1", Email: "same@example.com", Alias: "one"},
+		{ID: "acct_2", Email: "same@example.com", Alias: "two"},
+	}
+	if code := app.resolveFailure("same@example.com", matches); code != 1 {
+		t.Fatalf("exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "ambiguous_query" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+	if len(envelope.Error.Candidates) != 2 {
+		t.Fatalf("candidates = %d", len(envelope.Error.Candidates))
+	}
+	if envelope.Error.Candidates[0].ID != "acct_1" || envelope.Error.Candidates[1].ID != "acct_2" {
+		t.Errorf("candidates = %+v", envelope.Error.Candidates)
+	}
+}
+
+func TestAccountNotFoundCode(t *testing.T) {
+	env := newTestEnv(t, false)
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"switch", "missing", "--json"}); code != 1 {
+		t.Fatalf("switch exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "account_not_found" {
+		t.Fatalf("unexpected switch error: %+v", envelope.Error)
+	}
+
+	app, out, _ = env.app("")
+	if code := app.Run([]string{"remove", "--all", "--yes", "--json"}); code != 1 {
+		t.Fatalf("remove exit = %d", code)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "account_not_found" {
+		t.Fatalf("unexpected remove error: %+v", envelope.Error)
+	}
+}
+
+func TestRegistryErrorSanitized(t *testing.T) {
+	env := newTestEnv(t, false)
+	if err := os.MkdirAll(env.storeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registryPath := filepath.Join(env.storeDir, "registry.json")
+	if err := os.WriteFile(registryPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"list", "--json"}); code != 1 {
+		t.Fatalf("exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "registry_error" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+	if strings.Contains(envelope.Error.Message, env.storeDir) || strings.Contains(envelope.Error.Message, "json:") {
+		t.Errorf("error leaked internal detail: %q", envelope.Error.Message)
+	}
+	if envelope.Error.Hint == "" {
+		t.Errorf("missing hint: %+v", envelope.Error)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestImportErrorCode(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"import", filepath.Join(env.dir, "missing.json"), "--json"}); code != 1 {
+		t.Fatalf("exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "import_failed" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+	if envelope.Error.Hint == "" {
+		t.Errorf("missing hint: %+v", envelope.Error)
+	}
+}
+
+func TestHumanErrorHint(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"current"}); code != 1 {
+		t.Fatalf("exit = %d", code)
+	}
+	if !strings.Contains(errOut.String(), "error: no agy credentials") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "hint:") {
+		t.Errorf("stderr missing hint: %q", errOut.String())
+	}
+}
+
+func TestJSONRemoveSuccess(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"remove", "--all", "--yes", "--logout", "--json"}); code != 0 {
+		t.Fatalf("remove exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Command != "remove" {
+		t.Fatalf("command = %q", envelope.Command)
+	}
+	var data struct {
+		Removed   []registry.Account `json:"removed"`
+		LoggedOut bool               `json:"logged_out"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Removed) != 1 || !data.LoggedOut {
+		t.Errorf("unexpected remove data: %+v", data)
+	}
+	if strings.Contains(out.String(), "Removed the live agy credential.") {
+		t.Errorf("human output leaked into JSON: %q", out.String())
+	}
+}
+
+func TestConfirmationRequired(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"remove", "1", "--json"}); code != 1 {
+		t.Fatalf("remove exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "confirmation_required" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+}
+
+func TestConfirmationDeclinedJSON(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	app, out, _ := env.app("n\n")
+	app.TTY = true
+	if code := app.Run([]string{"remove", "1", "--json"}); code != 1 {
+		t.Fatalf("remove exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "confirmation_declined" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+	if strings.Contains(out.String(), "Cancelled.") {
+		t.Errorf("human output leaked into JSON: %q", out.String())
 	}
 }
 
@@ -471,9 +675,16 @@ type testEnvelope struct {
 }
 
 type testErrorDoc struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Hint    string `json:"hint"`
+	Code       string          `json:"code"`
+	Message    string          `json:"message"`
+	Hint       string          `json:"hint"`
+	Candidates []testCandidate `json:"candidates"`
+}
+
+type testCandidate struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Alias string `json:"alias"`
 }
 
 func decodeTestEnvelope(t *testing.T, out *bytes.Buffer) testEnvelope {

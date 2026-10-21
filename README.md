@@ -216,6 +216,10 @@ Usage and operation errors use the same envelope:
 
 `command` is always the canonical command name, even when an alias is used.
 
+Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `credential_not_found`, `credential_error`, `credential_write_failed`, `registry_error`, `state_uncertain`, `oauth_error`, `import_failed`, `invalid_credential`, `export_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
+
+`ambiguous_query` errors include a `candidates` array with account IDs, emails, and aliases. Hints are included when there is a concrete recovery step.
+
 ## Exit codes
 
 | Code | Meaning |

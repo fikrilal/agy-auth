@@ -19,7 +19,7 @@ func (a *App) cmdStatus(args []string) int {
 
 	reg, err := a.Store.Load()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
 
 	var currentRaw []byte
@@ -95,7 +95,7 @@ func (a *App) cmdStatus(args []string) int {
 			payload["current"] = nil
 		}
 		if err := a.emitJSON(payload); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}

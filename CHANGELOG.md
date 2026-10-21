@@ -16,6 +16,9 @@ All notable changes to this project are documented here.
 - CLI help is generated from a single command specification.
 - Usage errors print `error:`, `Usage:`, and a `hint:` and exit `2`.
 - `--json` responses are versioned envelopes with `schema_version`, `command`, and `data` or `error`; warnings stay on stderr.
+- Operation errors use stable codes and hints; raw Go errors and internal paths are no longer shown.
+- Ambiguous query errors include candidate accounts.
+- `switch --json` and `remove --json` reject interactive selection without a query or selector.
 
 ## [0.1.0] - 2026-10-20
 

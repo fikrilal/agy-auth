@@ -182,13 +182,23 @@ func isBoolFlag(definition *flag.Flag) bool {
 	return ok && value.IsBoolFlag()
 }
 
-func (a *App) fail(format string, args ...any) int {
-	message := fmt.Sprintf(format, args...)
+func (a *App) failCode(code, hint, format string, args ...any) int {
+	return a.errorDoc(1, ErrorDoc{
+		Code:    code,
+		Message: fmt.Sprintf(format, args...),
+		Hint:    hint,
+	})
+}
+
+func (a *App) errorDoc(exit int, doc ErrorDoc) int {
 	if a.JSON {
-		return a.emitJSONError(1, ErrorDoc{Code: "operation_failed", Message: message})
+		return a.emitJSONError(exit, doc)
 	}
-	fmt.Fprintf(a.Err, "error: %s\n", message)
-	return 1
+	fmt.Fprintf(a.Err, "error: %s\n", doc.Message)
+	if doc.Hint != "" {
+		fmt.Fprintf(a.Err, "hint: %s\n", doc.Hint)
+	}
+	return exit
 }
 
 func (a *App) warn(format string, args ...any) {

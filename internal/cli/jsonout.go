@@ -10,8 +10,14 @@ type Envelope struct {
 }
 
 type ErrorDoc struct {
-	Code       string `json:"code"`
-	Message    string `json:"message"`
-	Hint       string `json:"hint,omitempty"`
-	Candidates []any  `json:"candidates,omitempty"`
+	Code       string      `json:"code"`
+	Message    string      `json:"message"`
+	Hint       string      `json:"hint,omitempty"`
+	Candidates []Candidate `json:"candidates,omitempty"`
+}
+
+type Candidate struct {
+	ID    string `json:"id"`
+	Email string `json:"email,omitempty"`
+	Alias string `json:"alias,omitempty"`
 }

@@ -22,7 +22,7 @@ func (a *App) cmdList(args []string) int {
 
 	reg, err := a.Store.Load()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
 
 	var currentRaw []byte
@@ -137,7 +137,9 @@ func (a *App) cmdList(args []string) int {
 
 	if len(displayRows) == 0 {
 		if a.JSON {
-			_ = a.emitJSON(map[string]any{"accounts": []accountRow{}, "current": nil})
+			if err := a.emitJSON(map[string]any{"accounts": []accountRow{}, "current": nil}); err != nil {
+				return a.failCode("output_error", "", "could not write JSON output")
+			}
 			return 0
 		}
 		if *activeOnly && len(reg.Accounts) > 0 {
@@ -160,7 +162,7 @@ func (a *App) cmdList(args []string) int {
 			payload["current"] = nil
 		}
 		if err := a.emitJSON(payload); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
@@ -201,17 +203,25 @@ func (a *App) cmdAdd(args []string) int {
 	if fs.NArg() > 0 {
 		return a.usageFor("add", "add takes no positional arguments")
 	}
+	if *alias != "" {
+		if err := registry.ValidateAlias(*alias); err != nil {
+			return a.usageFor("add", "%s", err)
+		}
+	}
 
 	read, err := a.Storage.Read()
 	if errors.Is(err, agy.ErrNoCredentials) {
-		return a.fail("no agy credentials found; sign in with `agy` first, or use `agy-auth login`")
+		return a.failCode("credential_not_found", "Sign in with `agy` first, or use `agy-auth login`.", "no agy credentials found")
 	}
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("credential_error", "Run `agy-auth status` to check keyring and file-mirror access.", "could not read the agy credential")
+	}
+	if _, err := agy.ParseTokenFile(read.Raw); err != nil {
+		return a.failCode("credential_error", "Sign in with agy again, or use `agy-auth login`.", "the live agy credential is invalid")
 	}
 	result, err := a.Store.Upsert(read.Raw, *alias, true)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the live agy credential")
 	}
 
 	if a.JSON {
@@ -220,7 +230,7 @@ func (a *App) cmdAdd(args []string) int {
 			"account": result.Account,
 			"source":  read.Source,
 		}); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
@@ -243,14 +253,14 @@ func (a *App) cmdCurrent(args []string) int {
 
 	read, err := a.Storage.Read()
 	if errors.Is(err, agy.ErrNoCredentials) {
-		return a.fail("no agy credentials found")
+		return a.failCode("credential_not_found", "Sign in with `agy`, or use `agy-auth login`.", "no agy credentials found")
 	}
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("credential_error", "Run `agy-auth status` to check keyring and file-mirror access.", "could not read the agy credential")
 	}
 	tf, err := agy.ParseTokenFile(read.Raw)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("credential_error", "Sign in again with `agy` or `agy-auth login`.", "the live agy credential is invalid")
 	}
 	now := a.now()
 	row := accountRow{
@@ -267,7 +277,7 @@ func (a *App) cmdCurrent(args []string) int {
 	}
 	if a.JSON {
 		if err := a.emitJSON(row); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}

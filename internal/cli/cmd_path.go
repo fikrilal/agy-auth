@@ -21,7 +21,7 @@ func (a *App) cmdPath(args []string) int {
 	}
 	if a.JSON {
 		if err := a.emitJSON(payload); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}

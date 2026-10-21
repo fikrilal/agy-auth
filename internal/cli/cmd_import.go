@@ -22,10 +22,15 @@ func (a *App) cmdImport(args []string) int {
 	if fs.NArg() != 1 {
 		return a.usageFor("import", "import takes exactly one file or directory")
 	}
+	if *alias != "" {
+		if err := registry.ValidateAlias(*alias); err != nil {
+			return a.usageFor("import", "%s", err)
+		}
+	}
 	path := fs.Arg(0)
 	info, err := os.Stat(path)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("import_failed", "Check the path and permissions.", "could not access %s", path)
 	}
 
 	var files []string
@@ -36,7 +41,7 @@ func (a *App) cmdImport(args []string) int {
 		}
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return a.fail("%v", err)
+			return a.failCode("import_failed", "Check the directory permissions.", "could not read %s", path)
 		}
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
@@ -49,7 +54,7 @@ func (a *App) cmdImport(args []string) int {
 		}
 		sort.Strings(files)
 		if len(files) == 0 {
-			return a.fail("no JSON credential files found in %s", path)
+			return a.failCode("import_failed", "Put agy credential JSON files in the directory.", "no JSON credential files found in %s", path)
 		}
 	} else {
 		files = []string{path}
@@ -59,10 +64,10 @@ func (a *App) cmdImport(args []string) int {
 	for _, file := range files {
 		raw, err := os.ReadFile(file)
 		if err != nil {
-			return a.fail("read %s: %v", file, err)
+			return a.failCode("import_failed", "Check that the file exists and is readable.", "could not read %s", file)
 		}
 		if _, err := agy.ParseTokenFile(raw); err != nil {
-			return a.fail("import %s: %v", file, err)
+			return a.failCode("invalid_credential", "Use an agy credential JSON file.", "%s is not a valid agy credential", file)
 		}
 		raws = append(raws, raw)
 	}
@@ -71,7 +76,7 @@ func (a *App) cmdImport(args []string) int {
 	for i, raw := range raws {
 		result, err := a.Store.Upsert(raw, *alias, *activate)
 		if err != nil {
-			return a.fail("import %s: %v", files[i], err)
+			return a.failCode("registry_error", "Check the account registry permissions.", "could not import %s", files[i])
 		}
 		imported = append(imported, result.Account)
 	}
@@ -80,7 +85,11 @@ func (a *App) cmdImport(args []string) int {
 	if *activate && len(files) == 1 {
 		report := a.Storage.Write(raws[0])
 		if !report.OK() {
-			return a.fail("imported but could not write agy credentials: %v", report.Error())
+			return a.errorDoc(1, ErrorDoc{
+				Code:    "state_uncertain",
+				Message: "imported the account but could not write the agy credential",
+				Hint:    fmt.Sprintf("Run `agy-auth switch %s` after fixing credential storage.", imported[0].ID),
+			})
 		}
 		activated = true
 	}
@@ -90,7 +99,7 @@ func (a *App) cmdImport(args []string) int {
 			"imported":  imported,
 			"activated": activated,
 		}); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
@@ -111,10 +120,10 @@ func (a *App) cmdExport(args []string) int {
 	}
 	reg, err := a.Store.Load()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
 	if len(reg.Accounts) == 0 {
-		return a.fail("no stored accounts to export")
+		return a.failCode("account_not_found", "Run `agy-auth add` or `agy-auth login` first.", "no stored accounts to export")
 	}
 
 	var accounts []registry.Account
@@ -136,7 +145,7 @@ func (a *App) cmdExport(args []string) int {
 		target = "."
 	}
 	if err := os.MkdirAll(target, 0o700); err != nil {
-		return a.fail("%v", err)
+		return a.failCode("export_failed", "Check the destination path and permissions.", "could not create the export directory")
 	}
 
 	type exported struct {
@@ -147,20 +156,20 @@ func (a *App) cmdExport(args []string) int {
 	for _, account := range accounts {
 		raw, err := a.Store.LoadToken(account.ID)
 		if err != nil {
-			return a.fail("%v", err)
+			return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not read the stored credential for %s", account.DisplayName())
 		}
 		name := sanitizeFilename(valueOr(account.Email, valueOr(account.Alias, account.ID)))
 		filename := fmt.Sprintf("%s-%s.json", name, shortID(account.ID))
 		path := filepath.Join(target, filename)
 		if err := writeExportFile(path, raw); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("export_failed", "Check the destination permissions.", "could not write %s", path)
 		}
 		results = append(results, exported{Account: account, Path: path})
 	}
 
 	if a.JSON {
 		if err := a.emitJSON(results); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}

@@ -36,22 +36,22 @@ func (a *App) cmdAliasSet(args []string) int {
 	}
 	reg, err := a.Store.Load()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
 	matches := reg.Resolve(fs.Arg(0))
 	if len(matches) != 1 {
 		return a.resolveFailure(fs.Arg(0), matches)
 	}
 	if err := reg.SetAlias(matches[0].ID, fs.Arg(1)); err != nil {
-		return a.fail("%v", err)
+		return a.usageFor("alias", "%s", err)
 	}
 	if err := a.Store.Save(reg); err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the account registry")
 	}
 	account := reg.FindByID(matches[0].ID)
 	if a.JSON {
 		if err := a.emitJSON(account); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
@@ -69,7 +69,7 @@ func (a *App) cmdAliasClear(args []string) int {
 	}
 	reg, err := a.Store.Load()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
 	matches := reg.Resolve(fs.Arg(0))
 	if len(matches) != 1 {
@@ -78,14 +78,14 @@ func (a *App) cmdAliasClear(args []string) int {
 	account := reg.FindByID(matches[0].ID)
 	previous := account.Alias
 	if err := reg.ClearAlias(account.ID); err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not clear the alias")
 	}
 	if err := a.Store.Save(reg); err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the account registry")
 	}
 	if a.JSON {
 		if err := a.emitJSON(reg.FindByID(account.ID)); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
@@ -107,11 +107,11 @@ func (a *App) cmdAliasList(args []string) int {
 	}
 	reg, err := a.Store.Load()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
 	if a.JSON {
 		if err := a.emitJSON(reg.Accounts); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
@@ -127,7 +127,20 @@ func (a *App) cmdAliasList(args []string) int {
 
 func (a *App) resolveFailure(query string, matches []registry.Account) int {
 	if len(matches) == 0 {
-		return a.fail("no account matches %q", query)
+		return a.failCode("account_not_found", "Run `agy-auth list` to see stored accounts.", "no account matches %q", query)
 	}
-	return a.fail("query %q matches multiple accounts: %s", query, selectionSummary(matches))
+	candidates := make([]Candidate, 0, len(matches))
+	for _, account := range matches {
+		candidates = append(candidates, Candidate{
+			ID:    account.ID,
+			Email: account.Email,
+			Alias: account.Alias,
+		})
+	}
+	return a.errorDoc(1, ErrorDoc{
+		Code:       "ambiguous_query",
+		Message:    fmt.Sprintf("query %q matches multiple accounts: %s", query, selectionSummary(matches)),
+		Hint:       "Use a row number, exact email, alias, or account ID prefix.",
+		Candidates: candidates,
+	})
 }

@@ -21,16 +21,19 @@ func (a *App) cmdRemove(args []string) int {
 	if *all && fs.NArg() > 0 {
 		return a.usageFor("remove", "remove --all cannot be combined with a query")
 	}
+	if a.JSON && !*all && fs.NArg() == 0 {
+		return a.usageFor("remove", "remove --json requires one or more queries or --all")
+	}
 	if !*all && fs.NArg() == 0 && !a.TTY {
 		return a.usageFor("remove", "specify one or more account queries, or pass --all")
 	}
 
 	reg, err := a.Store.Load()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
 	if len(reg.Accounts) == 0 {
-		return a.fail("no stored accounts to remove")
+		return a.failCode("account_not_found", "Run `agy-auth add` or `agy-auth login` first.", "no stored accounts to remove")
 	}
 
 	var selected []registry.Account
@@ -56,7 +59,7 @@ func (a *App) cmdRemove(args []string) int {
 		}
 		answer, err := a.readLine("Remove which accounts? (numbers, aliases, emails, or 'all'): ")
 		if err != nil {
-			return a.fail("%v", err)
+			return a.failCode("input_error", "Try again, or pass selectors on the command line.", "could not read the selection")
 		}
 		if strings.EqualFold(strings.TrimSpace(answer), "all") {
 			selected = append(selected, reg.Accounts...)
@@ -77,16 +80,22 @@ func (a *App) cmdRemove(args []string) int {
 
 	selected = dedupeAccounts(selected)
 	if len(selected) == 0 {
+		if a.JSON {
+			return a.failCode("account_not_found", "Pass one or more account queries or --all.", "no accounts selected")
+		}
 		fmt.Fprintln(a.Out, "Nothing selected.")
 		return 0
 	}
 
 	if !*yes {
 		if !a.TTY {
-			return a.fail("refusing to remove %d account(s) without --yes", len(selected))
+			return a.failCode("confirmation_required", "Re-run with --yes to confirm.", "refusing to remove %d account(s) without --yes", len(selected))
 		}
 		answer, err := a.readLine(fmt.Sprintf("Remove %d account(s)? [y/N]: ", len(selected)))
 		if err != nil || !isYes(answer) {
+			if a.JSON {
+				return a.failCode("confirmation_declined", "Re-run with --yes to confirm.", "removal cancelled")
+			}
 			fmt.Fprintln(a.Out, "Cancelled.")
 			return 1
 		}
@@ -113,7 +122,9 @@ func (a *App) cmdRemove(args []string) int {
 			a.warn("could not remove the live agy credential: %v", err)
 		} else {
 			loggedOut = true
-			fmt.Fprintln(a.Out, "Removed the live agy credential.")
+			if !a.JSON {
+				fmt.Fprintln(a.Out, "Removed the live agy credential.")
+			}
 		}
 	}
 
@@ -131,7 +142,11 @@ func (a *App) cmdRemove(args []string) int {
 		}
 	}
 	if err := a.Store.Save(reg); err != nil {
-		return a.fail("%v", err)
+		return a.errorDoc(1, ErrorDoc{
+			Code:    "state_uncertain",
+			Message: "the live credential may have been removed but the registry could not be updated",
+			Hint:    "Run `agy-auth list` to verify the stored accounts.",
+		})
 	}
 
 	if a.JSON {
@@ -139,7 +154,7 @@ func (a *App) cmdRemove(args []string) int {
 			"removed":    removed,
 			"logged_out": loggedOut,
 		}); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}

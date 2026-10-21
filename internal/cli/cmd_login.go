@@ -26,11 +26,16 @@ func (a *App) cmdLogin(args []string) int {
 	if fs.NArg() > 0 {
 		return a.usageFor("login", "login takes no positional arguments")
 	}
+	if *alias != "" {
+		if err := registry.ValidateAlias(*alias); err != nil {
+			return a.usageFor("login", "%s", err)
+		}
+	}
 	if *viaAgy {
 		return a.loginViaAgy(*alias, *agyPath)
 	}
 	if err := oauth.EnsureClient(*agyPath); err != nil {
-		return a.fail("%v", err)
+		return a.failCode("oauth_error", "Pass --agy <path>, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET.", "could not discover the Antigravity OAuth client")
 	}
 	return a.loginOAuth(*alias, *authMethod, *noBrowser)
 }
@@ -38,11 +43,11 @@ func (a *App) cmdLogin(args []string) int {
 func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 	state, err := oauth.NewState()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("oauth_error", "Retry the login flow.", "could not start the OAuth flow")
 	}
 	verifier, err := oauth.NewVerifier()
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("oauth_error", "Retry the login flow.", "could not start the OAuth flow")
 	}
 	authURL := oauth.AuthURL(state, verifier)
 
@@ -53,27 +58,27 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 	fmt.Fprintln(prompt)
 	if !noBrowser {
 		if err := openBrowser(authURL); err != nil {
-			fmt.Fprintf(prompt, "Could not open a browser automatically (%v).\n", err)
+			fmt.Fprintln(prompt, "Could not open a browser automatically; open the URL manually.")
 		}
 	}
 	fmt.Fprintln(prompt, "After approving, antigravity.google/oauth-callback shows an authorization code.")
 	input, err := a.readLine("Paste the authorization code shown on that page: ")
 	if err != nil {
-		return a.fail("read authorization code: %v", err)
+		return a.failCode("input_error", "Try again with the code from antigravity.google/oauth-callback.", "could not read the authorization code")
 	}
 	code, err := oauth.NormalizeCode(input, state)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("oauth_error", "Copy the code shown after approving access and try again.", "the authorization code is invalid")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	response, err := oauth.Exchange(ctx, code, verifier)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("oauth_error", "Check your network connection and try again.", "could not exchange the authorization code")
 	}
 	if response.IDToken == "" {
-		return a.fail("Google did not return an id_token; the account cannot be identified")
+		return a.failCode("oauth_error", "Try signing in again; the account cannot be identified without an ID token.", "Google did not return an id_token")
 	}
 
 	tokenFile := oauth.TokenFromResponse(response, authMethod, a.now())
@@ -85,20 +90,24 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 		}
 	}
 	if tokenFile.Token.RefreshToken == "" {
-		return a.fail("Google did not return a refresh token; re-run login and approve offline access")
+		return a.failCode("oauth_error", "Re-run login and approve offline access.", "Google did not return a refresh token")
 	}
 
 	raw, err := oauth.MarshalTokenFile(tokenFile)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("oauth_error", "Try signing in again.", "could not prepare the credential document")
 	}
 	result, err := a.Store.Upsert(raw, alias, true)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Check the account registry permissions.", "could not save the logged-in account")
 	}
 	report := a.Storage.Write(raw)
 	if !report.OK() {
-		return a.fail("account was saved to the registry but agy credentials could not be written: %v\nrun \"agy-auth switch %s\" after fixing credential storage", report.Error(), result.Account.ID)
+		return a.errorDoc(1, ErrorDoc{
+			Code:    "state_uncertain",
+			Message: "the account was saved, but the agy credential could not be written",
+			Hint:    fmt.Sprintf("Run `agy-auth switch %s` after fixing credential storage.", result.Account.ID),
+		})
 	}
 	if err := report.Error(); err != nil {
 		warnings = append(warnings, err.Error())
@@ -111,7 +120,7 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 
 func (a *App) loginViaAgy(alias, agyPath string) int {
 	if !a.TTY {
-		return a.fail("--via-agy requires an interactive terminal; use the default OAuth flow instead")
+		return a.usageFor("login", "--via-agy requires an interactive terminal; use the default OAuth flow instead")
 	}
 	if read, err := a.Storage.Read(); err == nil {
 		if result, err := a.Store.Upsert(read.Raw, "", true); err == nil {
@@ -135,7 +144,7 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 		if name == "" {
 			name = "(unknown account)"
 		}
-		return a.fail("agy is still signed in as %s and its credential could not be cleared; sign out in agy first", name)
+		return a.failCode("state_conflict", "Sign out in agy first.", "agy is still signed in as %s and its credential could not be cleared", name)
 	} else if !errors.Is(err, agy.ErrNoCredentials) {
 		a.warn("could not verify that credentials were cleared: %v", err)
 	}
@@ -144,13 +153,13 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 	if binary == "" {
 		found, err := exec.LookPath("agy")
 		if err != nil {
-			return a.fail("agy executable not found in PATH; pass --agy <path>")
+			return a.failCode("agy_not_found", "Pass --agy <path>.", "agy executable not found in PATH")
 		}
 		binary = found
 	}
 
 	if a.StdinFile == nil || a.StdoutFile == nil || a.StderrFile == nil {
-		return a.fail("interactive terminal unavailable for --via-agy")
+		return a.usageFor("login", "interactive terminal unavailable for --via-agy")
 	}
 	command := exec.Command(binary)
 	command.Stdin = a.StdinFile
@@ -159,19 +168,19 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 	fmt.Fprintln(a.promptWriter(), "Starting agy. Sign in with the account you want to add, then quit agy.")
 	runErr := command.Run()
 	if runErr != nil {
-		fmt.Fprintf(a.promptWriter(), "agy exited with an error (%v); checking for a credential anyway.\n", runErr)
+		fmt.Fprintln(a.promptWriter(), "agy exited with an error; checking for a credential anyway.")
 	}
 
 	read, err := a.Storage.Read()
 	if errors.Is(err, agy.ErrNoCredentials) {
-		return a.fail("agy did not leave a credential; the previous account is still stored and can be restored with \"agy-auth list\"")
+		return a.failCode("credential_not_found", "The previous account is still stored; run `agy-auth list` to see it.", "agy did not leave a credential")
 	}
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("credential_error", "Run `agy-auth status` to check keyring and file-mirror access.", "could not read the agy credential")
 	}
 	result, err := a.Store.Upsert(read.Raw, alias, true)
 	if err != nil {
-		return a.fail("%v", err)
+		return a.failCode("registry_error", "Check the account registry permissions.", "could not save the new account")
 	}
 	return a.finishLogin(result, agy.WriteReport{Written: []agy.Source{read.Source}}, nil)
 }
@@ -212,7 +221,7 @@ func (a *App) finishLogin(result registry.UpsertResult, report agy.WriteReport, 
 			"account": result.Account,
 			"written": report.Written,
 		}); err != nil {
-			return a.fail("%v", err)
+			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
