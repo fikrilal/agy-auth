@@ -5,11 +5,22 @@
 ## Read order
 
 1. `README.md` — user-facing behavior.
-2. `docs/internals.md` — credential storage, registry, switching, OAuth.
-3. `internal/agy` — credential JSON and keyring/file backend.
-4. `internal/registry` — snapshots, IDs, aliases, queries.
-5. `internal/oauth` — PKCE login and client discovery.
-6. `internal/cli` — commands, picker, rendering.
+2. `docs/harness.md` — repository guardrails, profiles, contracts, hooks.
+3. `docs/internals.md` — credential storage, registry, switching, OAuth.
+4. `internal/agy` — credential JSON and keyring/file backend.
+5. `internal/registry` — snapshots, IDs, aliases, queries.
+6. `internal/oauth` — PKCE login and client discovery.
+7. `internal/cli` — commands, picker, rendering.
+
+## Harness
+
+- Default local gate: `make verify` (`harness verify --profile fast`).
+- Non-trivial changes: `make verify-full`.
+- CI runs `make verify-ci`; do not duplicate its step list.
+- No skip flags. Do not claim a check passed unless it ran.
+- If the same failure or review comment repeats, add a lint/contract/regression test and update `docs/harness.md`.
+- `make hooks` installs the pre-commit and commit-msg hooks.
+- Production packages must not import `internal/harness`.
 
 ## Invariants
 
@@ -26,13 +37,12 @@
 
 ```shell
 make build
-go test ./...
-go vet ./...
-go test -race ./...
+make verify
+make verify-full
+make verify-ci
 AGY_AUTH_KEYRING_TEST=1 go test ./internal/agy -run TestKeyringRoundTrip -v
-node scripts/build-npm.mjs --current
-node npm/bin/agy-auth.js version
-npm pack --dry-run --ignore-scripts
+make npm-build
+make npm-pack
 ```
 
 Use a temporary `AGY_AUTH_HOME` and `AGY_AUTH_STORAGE=file` for manual CLI testing.
@@ -59,9 +69,11 @@ Use a temporary `AGY_AUTH_HOME` and `AGY_AUTH_STORAGE=file` for manual CLI testi
 
 - `package.json` is the version source. `scripts/build-npm.mjs` injects it into the Go binary with ldflags.
 - See `docs/release.md`.
+- The release workflow runs `harness verify --profile ci`.
 - A `vX.Y.Z` tag builds all six binaries, publishes npm when `NPM_TOKEN` is set, and creates a GitHub release.
 
 ## Git
 
+- Use Conventional Commits: `type(scope): summary`, for example `feat(harness): add verification profiles`. Scopes are lowercase. The `commit-msg` hook enforces this.
 - The user is the only author. Never add `Co-authored-by` trailers, bot attributions, or `CommandCodeBot` lines to commits.
 - Only commit when asked.

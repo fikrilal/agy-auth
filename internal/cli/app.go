@@ -197,6 +197,13 @@ func (a *App) promptWriter() io.Writer {
 }
 
 func (a *App) cmdVersion(args []string) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		a.printCommandHelp("version")
+		return 0
+	}
+	if len(args) > 0 {
+		return a.fail("version takes no arguments")
+	}
 	if a.JSON {
 		_ = a.emitJSON(map[string]string{"version": Version})
 		return 0

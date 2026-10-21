@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+msg=$1
+cd "$(git rev-parse --show-toplevel)"
+exec go run ./cmd/harness commit-msg "$msg"

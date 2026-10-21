@@ -25,9 +25,8 @@ jobs:
       - name: Check tag matches package version
         run: |
           node -e 'const p=require("./package.json"); const t=process.env.GITHUB_REF_NAME.replace(/^v/,""); if (p.version !== t) { console.error(`package.json version ${p.version} does not match tag ${t}`); process.exit(1); }'
-      - run: go vet ./...
-      - run: go test ./...
-      - run: node scripts/build-npm.mjs --all
+      - name: Canonical harness verification
+        run: go run ./cmd/harness verify --profile ci
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

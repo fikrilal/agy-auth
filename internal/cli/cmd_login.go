@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -150,19 +149,13 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 		binary = found
 	}
 
+	if a.StdinFile == nil || a.StdoutFile == nil || a.StderrFile == nil {
+		return a.fail("interactive terminal unavailable for --via-agy")
+	}
 	command := exec.Command(binary)
 	command.Stdin = a.StdinFile
 	command.Stdout = a.StdoutFile
 	command.Stderr = a.StderrFile
-	if command.Stdin == nil {
-		command.Stdin = os.Stdin
-	}
-	if command.Stdout == nil {
-		command.Stdout = os.Stdout
-	}
-	if command.Stderr == nil {
-		command.Stderr = os.Stderr
-	}
 	fmt.Fprintln(a.promptWriter(), "Starting agy. Sign in with the account you want to add, then quit agy.")
 	runErr := command.Run()
 	if runErr != nil {

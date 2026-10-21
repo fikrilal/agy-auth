@@ -226,9 +226,20 @@ See [docs/release.md](docs/release.md) for the release process.
 
 ## Development
 
+The repository harness is the canonical gate:
+
 ```shell
-make test
-make vet
+make verify       # fast: static checks, contracts, build, short tests
+make verify-full  # race tests + current-target npm packaging
+make verify-ci    # CI parity: fresh race tests + all-target npm packaging
+make hooks        # opt-in pre-commit and commit-msg hooks
+```
+
+`make verify` is enough for most changes. See [docs/harness.md](docs/harness.md) for the rules, contracts, profiles, and commit policy.
+
+Build and packaging commands remain available:
+
+```shell
 make build
 make npm-build
 make npm-pack
@@ -244,6 +255,7 @@ It uses a throwaway service name (`agy-auth-selftest`) and never touches the `ge
 
 ## Documentation
 
+- [Harness](docs/harness.md) — verification profiles, custom lints, contracts, hooks
 - [Internals](docs/internals.md) — credential storage, registry, switching, OAuth
 - [Release process](docs/release.md)
 - [Contributing](CONTRIBUTING.md)

@@ -17,12 +17,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Check formatting
-        run: |
-          gofmt -l . | tee /tmp/gofmt.out
-          test ! -s /tmp/gofmt.out
-      - run: go vet ./...
-      - run: go test -race ./...
-      - run: node scripts/build-npm.mjs --current
-      - run: node npm/bin/agy-auth.js version
-      - run: npm pack --dry-run --ignore-scripts
+      - name: Canonical harness verification
+        run: go run ./cmd/harness verify --profile ci

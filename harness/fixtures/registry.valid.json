@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "active": "acct_test000001",
+  "accounts": [
+    {
+      "id": "acct_test000001",
+      "email": "user@example.com",
+      "sub": "subject-1",
+      "alias": "personal",
+      "auth_method": "consumer",
+      "fingerprint": "fingerprint-one",
+      "added_at": "2026-01-01T00:00:00Z",
+      "last_used_at": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "acct_test000002",
+      "email": "work@example.com",
+      "sub": "subject-2",
+      "alias": "work",
+      "auth_method": "consumer",
+      "fingerprint": "fingerprint-two",
+      "added_at": "2026-01-03T00:00:00Z"
+    }
+  ]
+}

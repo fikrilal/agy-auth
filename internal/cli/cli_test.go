@@ -378,3 +378,33 @@ func TestListActiveWithoutLiveCredential(t *testing.T) {
 		t.Errorf("output = %q", out.String())
 	}
 }
+
+func TestEveryCommandHasHelp(t *testing.T) {
+	env := newTestEnv(t, false)
+	commands := []string{
+		"list", "add", "login", "switch", "remove", "alias",
+		"status", "current", "import", "export", "path", "version",
+	}
+	for _, command := range commands {
+		app, out, errOut := env.app("")
+		if code := app.Run([]string{command, "--help"}); code != 0 {
+			t.Errorf("%s --help exit = %d, stderr = %s", command, code, errOut)
+			continue
+		}
+		if !strings.Contains(out.String(), "Usage:") {
+			t.Errorf("%s --help output does not contain Usage: %q", command, out.String())
+		}
+	}
+
+	aliases := []string{"ls", "use", "rm", "paths"}
+	for _, alias := range aliases {
+		app, out, errOut := env.app("")
+		if code := app.Run([]string{alias, "--help"}); code != 0 {
+			t.Errorf("%s --help exit = %d, stderr = %s", alias, code, errOut)
+			continue
+		}
+		if !strings.Contains(out.String(), "Usage:") {
+			t.Errorf("%s --help output does not contain Usage: %q", alias, out.String())
+		}
+	}
+}

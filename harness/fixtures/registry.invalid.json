@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "active": "acct_bad",
+  "accounts": [
+    {
+      "id": "../escape",
+      "email": "bad@example.com",
+      "added_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}

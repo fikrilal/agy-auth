@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Repository harness with custom Go AST lints, secret scanning, credential/registry contract fixtures, doctor, git hooks, and `fast`/`full`/`ci` verification profiles.
+
+### Changed
+
+- CI and release now run the canonical `harness verify --profile ci` gate.
+- Commit messages use Conventional Commits and reject bot co-author trailers.
+
 ## [0.1.0] - 2026-10-20
 
 ### Added
