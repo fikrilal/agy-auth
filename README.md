@@ -255,7 +255,11 @@ It uses a throwaway service name (`agy-auth-selftest`) and never touches the `ge
 
 ## Documentation
 
+- [Documentation index](docs/README.md)
 - [Harness](docs/harness.md) — verification profiles, custom lints, contracts, hooks
+- [Engineering guides](docs/engineering/README.md) — agent workflow, architecture, testing, standards
+- [Execution plans](docs/exec-plans/README.md) — non-trivial work plans
+- [ADRs](docs/adr/README.md) — architecture decisions
 - [Internals](docs/internals.md) — credential storage, registry, switching, OAuth
 - [Release process](docs/release.md)
 - [Contributing](CONTRIBUTING.md)

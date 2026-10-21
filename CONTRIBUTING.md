@@ -25,6 +25,13 @@ short tests. `make verify-full` adds race tests and npm packaging; CI runs
 `make hooks` installs the pre-commit and commit-msg hooks. Commits use
 Conventional Commits, for example `feat(harness): add profiles`.
 
+For non-trivial work, write an execution plan under
+[docs/exec-plans/active/](docs/exec-plans/active/) using the
+[template](docs/exec-plans/_template.md), and move it to `completed/` when the
+change is verified. Add an ADR under [docs/adr/](docs/adr/) when a decision
+changes architecture, credentials, public behavior, CI, or release. Plans and
+ADRs are review artifacts, not an automated task-authority system.
+
 ## Project layout
 
 | Path | Responsibility |
@@ -38,14 +45,18 @@ Conventional Commits, for example `feat(harness): add profiles`.
 | `internal/harness` | lints, checks, contracts, profiles, doctor |
 | `harness/fixtures` | independent credential/registry contracts |
 | `.githooks` | opt-in pre-commit and commit-msg hooks |
+| `docs/engineering` | architecture, testing, standards, agent workflow |
+| `docs/exec-plans` | active/completed plans and template |
+| `docs/adr` | architecture decision records |
 | `npm/bin` | Node shim for prebuilt binaries |
 | `scripts` | cross-compilation |
-| `docs` | internals, harness, and release process |
+| `docs` | internals, harness, guides, plans, ADRs, release process |
 
 ## Pull requests
 
 - Keep changes focused; add tests for behavior changes.
 - Run `make verify`; use `make verify-full` for non-trivial changes.
+- Write an execution plan for non-trivial work; add an ADR for durable decisions.
 - Do not commit tokens, OAuth client secrets, or real account snapshots.
 - Use Conventional Commits (`feat(scope): ...`); do not add co-authored-by or bot trailers.
 - Update `README.md`, `docs/internals.md`, or `docs/harness.md` when behavior changes.

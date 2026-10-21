@@ -5,12 +5,14 @@
 ## Read order
 
 1. `README.md` — user-facing behavior.
-2. `docs/harness.md` — repository guardrails, profiles, contracts, hooks.
-3. `docs/internals.md` — credential storage, registry, switching, OAuth.
-4. `internal/agy` — credential JSON and keyring/file backend.
-5. `internal/registry` — snapshots, IDs, aliases, queries.
-6. `internal/oauth` — PKCE login and client discovery.
-7. `internal/cli` — commands, picker, rendering.
+2. `docs/README.md` — documentation index.
+3. `docs/harness.md` — repository guardrails, profiles, contracts, hooks.
+4. `docs/engineering/agent-workflow.md` — planning, verification, and commit workflow.
+5. `docs/internals.md` — credential storage, registry, switching, OAuth.
+6. `internal/agy` — credential JSON and keyring/file backend.
+7. `internal/registry` — snapshots, IDs, aliases, queries.
+8. `internal/oauth` — PKCE login and client discovery.
+9. `internal/cli` — commands, picker, rendering.
 
 ## Harness
 
@@ -21,6 +23,13 @@
 - If the same failure or review comment repeats, add a lint/contract/regression test and update `docs/harness.md`.
 - `make hooks` installs the pre-commit and commit-msg hooks.
 - Production packages must not import `internal/harness`.
+- For non-trivial work, write an execution plan under `docs/exec-plans/active/` using the template; move it to `completed/` when done.
+- Execution plans are review artifacts, not loop-engineering authority. There is no task controller, path enforcement, repair loop, or handoff automation.
+
+## Decisions
+
+- Add an ADR under `docs/adr/` when a decision changes architecture, credential handling, public CLI behavior, CI, or release.
+- Do not rewrite accepted ADRs; add a new one and mark the old one superseded.
 
 ## Invariants
 

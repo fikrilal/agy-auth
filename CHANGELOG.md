@@ -7,6 +7,7 @@ All notable changes to this project are documented here.
 ### Added
 
 - Repository harness with custom Go AST lints, secret scanning, credential/registry contract fixtures, doctor, git hooks, and `fast`/`full`/`ci` verification profiles.
+- Documentation index, engineering guides, execution-plan scaffold, and ADR process.
 
 ### Changed
 

@@ -181,6 +181,10 @@ Production packages must not import `internal/harness`; the `architecture` lint 
 
 ## Related docs
 
+- [Engineering guides](engineering/README.md)
+- [Agent workflow](engineering/agent-workflow.md)
+- [Execution plans](exec-plans/README.md)
+- [ADRs](adr/README.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Internals](internals.md)
 - [Release process](release.md)
