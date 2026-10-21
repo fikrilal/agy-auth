@@ -19,6 +19,9 @@ All notable changes to this project are documented here.
 - Operation errors use stable codes and hints; raw Go errors and internal paths are no longer shown.
 - Ambiguous query errors include candidate accounts.
 - `switch --json` and `remove --json` reject interactive selection without a query or selector.
+- Query resolution now prefers row number, exact account ID, exact alias, exact email, ID prefix, then substring.
+- Ambiguous switches open a candidate picker in a terminal; non-interactive and JSON calls return `ambiguous_query` with candidates.
+- Added `switch -` to return to the previously active account; `registry.json` now records `previous`.
 
 ## [0.1.0] - 2026-10-20
 

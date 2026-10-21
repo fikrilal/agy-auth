@@ -91,6 +91,18 @@ func (e *testEnv) app(input string) (*App, *bytes.Buffer, *bytes.Buffer) {
 	}, out, errOut
 }
 
+func addSecondAccount(t *testing.T, env *testEnv, email, subject, refresh, alias string) {
+	t.Helper()
+	path := filepath.Join(env.dir, subject+".json")
+	if err := os.WriteFile(path, makeCLIToken(t, email, subject, refresh), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"import", path, "--alias", alias}); code != 0 {
+		t.Fatalf("import %s exit = %d, stderr = %s", alias, code, errOut)
+	}
+}
+
 func TestCLILifecycle(t *testing.T) {
 	env := newTestEnv(t, true)
 
@@ -194,6 +206,160 @@ func TestCLILifecycle(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "No accounts yet") {
 		t.Errorf("list output = %q", out.String())
+	}
+}
+
+func TestSwitchPrevious(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	store := registry.NewStore(env.storeDir)
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"switch", "second", "--json"}); code != 0 {
+		t.Fatalf("switch exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var data struct {
+		Account registry.Account `json:"account"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.Account.Email != "second@example.com" {
+		t.Errorf("switched account = %+v", data.Account)
+	}
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Active != data.Account.ID || reg.Previous == "" {
+		t.Fatalf("active = %q, previous = %q", reg.Active, reg.Previous)
+	}
+	previousID := reg.Previous
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"switch", "-", "--json"}); code != 0 {
+		t.Fatalf("switch - exit = %d, stderr = %s", code, errOut)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.Account.ID != previousID || data.Account.Email != "user@example.com" {
+		t.Errorf("previous switch = %+v, want %q", data.Account, previousID)
+	}
+	reg, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Active != previousID {
+		t.Errorf("active = %q, want %q", reg.Active, previousID)
+	}
+}
+
+func TestSwitchPreviousMissing(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"switch", "-", "--json"}); code != 1 {
+		t.Fatalf("switch - exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "previous_not_found" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+}
+
+func TestSwitchAmbiguousPicker(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	app, out, errOut := env.app("2\n")
+	app.TTY = true
+	if code := app.Run([]string{"switch", "example.com"}); code != 0 {
+		t.Fatalf("switch exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "Select an account to activate") {
+		t.Errorf("missing picker prompt: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Switched to second") {
+		t.Errorf("missing switch result: %q", out.String())
+	}
+}
+
+func TestSwitchAmbiguousNonTTY(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"switch", "example.com", "--json"}); code != 1 {
+		t.Fatalf("switch exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "ambiguous_query" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+	if len(envelope.Error.Candidates) != 2 {
+		t.Errorf("candidates = %d", len(envelope.Error.Candidates))
+	}
+}
+
+func TestRemoveClearsPrevious(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"switch", "second", "--json"}); code != 0 {
+		t.Fatalf("switch exit = %d, stderr = %s", code, errOut)
+	}
+	store := registry.NewStore(env.storeDir)
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Previous == "" {
+		t.Fatal("previous account not recorded")
+	}
+
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"remove", "first", "--yes", "--json"}); code != 0 {
+		t.Fatalf("remove exit = %d, stderr = %s", code, errOut)
+	}
+	reg, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Previous != "" {
+		t.Errorf("previous = %q after removing it", reg.Previous)
+	}
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"switch", "-", "--json"}); code != 1 {
+		t.Fatalf("switch - exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "previous_not_found" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
 	}
 }
 

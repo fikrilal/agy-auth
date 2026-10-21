@@ -45,6 +45,7 @@ func (a Account) DisplayName() string {
 type Registry struct {
 	Version  int       `json:"version"`
 	Active   string    `json:"active,omitempty"`
+	Previous string    `json:"previous,omitempty"`
 	Accounts []Account `json:"accounts"`
 }
 
@@ -109,6 +110,15 @@ func (s *Store) Load() (*Registry, error) {
 			}
 			seenAliases[key] = account.ID
 		}
+	}
+	if reg.Active != "" && !seenIDs[reg.Active] {
+		reg.Active = ""
+	}
+	if reg.Previous != "" && !seenIDs[reg.Previous] {
+		reg.Previous = ""
+	}
+	if reg.Previous == reg.Active {
+		reg.Previous = ""
 	}
 	return &reg, nil
 }
@@ -197,6 +207,7 @@ func (s *Store) Upsert(raw []byte, alias string, activate bool) (UpsertResult, e
 	if err != nil {
 		return UpsertResult{}, err
 	}
+	previousActive := reg.Active
 
 	index := findAccountIndex(reg, id, claims.Subject, fingerprint)
 	now := time.Now().UTC()
@@ -239,6 +250,12 @@ func (s *Store) Upsert(raw []byte, alias string, activate bool) (UpsertResult, e
 		account.AddedAt = now
 	}
 	if activate || reg.Active == "" {
+		if previousActive != "" && previousActive != account.ID {
+			reg.Previous = previousActive
+		}
+		if reg.Previous == account.ID {
+			reg.Previous = ""
+		}
 		reg.Active = account.ID
 	}
 
@@ -311,8 +328,10 @@ func (r *Registry) FindByID(id string) *Account {
 	return nil
 }
 
-// Resolve supports row numbers (1-based), exact aliases, exact or partial
-// emails, and account ID prefixes. Results preserve registry order.
+// Resolve supports row numbers (1-based), exact account IDs, exact aliases,
+// exact emails, account ID prefixes, and email/alias/ID substrings. Earlier
+// forms win, so an exact alias is not widened by a substring match elsewhere.
+// Results preserve registry order.
 func (r *Registry) Resolve(query string) []Account {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -325,18 +344,39 @@ func (r *Registry) Resolve(query string) []Account {
 		return nil
 	}
 
-	var exact []Account
 	for _, account := range r.Accounts {
-		if strings.EqualFold(account.Alias, query) || strings.EqualFold(account.Email, query) ||
-			account.ID == query || strings.HasPrefix(account.ID, query) {
-			exact = append(exact, account)
+		if strings.EqualFold(account.ID, query) {
+			return []Account{account}
 		}
 	}
-	if len(exact) > 0 {
-		return dedupe(exact)
+
+	for _, account := range r.Accounts {
+		if account.Alias != "" && strings.EqualFold(account.Alias, query) {
+			return []Account{account}
+		}
+	}
+
+	var exactEmail []Account
+	for _, account := range r.Accounts {
+		if account.Email != "" && strings.EqualFold(account.Email, query) {
+			exactEmail = append(exactEmail, account)
+		}
+	}
+	if len(exactEmail) > 0 {
+		return dedupe(exactEmail)
 	}
 
 	lower := strings.ToLower(query)
+	var idPrefix []Account
+	for _, account := range r.Accounts {
+		if strings.HasPrefix(strings.ToLower(account.ID), lower) {
+			idPrefix = append(idPrefix, account)
+		}
+	}
+	if len(idPrefix) > 0 {
+		return dedupe(idPrefix)
+	}
+
 	var partial []Account
 	for _, account := range r.Accounts {
 		if strings.Contains(strings.ToLower(account.Email), lower) ||
@@ -384,6 +424,9 @@ func (r *Registry) Remove(id string) bool {
 			r.Accounts = append(r.Accounts[:i], r.Accounts[i+1:]...)
 			if r.Active == id {
 				r.Active = ""
+			}
+			if r.Previous == id {
+				r.Previous = ""
 			}
 			return true
 		}

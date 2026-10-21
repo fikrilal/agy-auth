@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -139,6 +140,101 @@ func TestResolveQueries(t *testing.T) {
 	}
 	if matches := reg.Resolve("example.com"); len(matches) != 0 {
 		t.Errorf("expected no matches for unrelated domain, got %d", len(matches))
+	}
+}
+
+func TestResolvePrecedence(t *testing.T) {
+	reg := &Registry{Accounts: []Account{
+		{ID: "acct_a", Email: "alpha@one.com", Alias: "work"},
+		{ID: "acct_b", Email: "beta@two.com", Alias: "personal"},
+		{ID: "acct_c", Email: "work@elsewhere.com", Alias: "other"},
+	}}
+
+	cases := []struct {
+		query string
+		want  []string
+	}{
+		{"work", []string{"acct_a"}},
+		{"WORK", []string{"acct_a"}},
+		{"personal", []string{"acct_b"}},
+		{"alpha@one.com", []string{"acct_a"}},
+		{"acct_b", []string{"acct_b"}},
+		{"acct_", []string{"acct_a", "acct_b", "acct_c"}},
+		{"2", []string{"acct_b"}},
+		{"com", []string{"acct_a", "acct_b", "acct_c"}},
+		{"elsewhere", []string{"acct_c"}},
+		{"missing", nil},
+	}
+	for _, tc := range cases {
+		matches := reg.Resolve(tc.query)
+		var got []string
+		for _, account := range matches {
+			got = append(got, account.ID)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Resolve(%q) = %v, want %v", tc.query, got, tc.want)
+		}
+	}
+}
+
+func TestPreviousTracking(t *testing.T) {
+	store := NewStore(t.TempDir())
+	expiry := time.Now().Add(time.Hour)
+	first, _ := store.Upsert(testToken(t, "first@example.com", "subject-1", "refresh-1", expiry), "first", true)
+	reg, _ := store.Load()
+	if reg.Previous != "" {
+		t.Errorf("previous = %q after first account", reg.Previous)
+	}
+
+	second, _ := store.Upsert(testToken(t, "second@example.com", "subject-2", "refresh-2", expiry), "second", true)
+	reg, _ = store.Load()
+	if reg.Active != second.Account.ID || reg.Previous != first.Account.ID {
+		t.Errorf("active = %q, previous = %q", reg.Active, reg.Previous)
+	}
+
+	_, _ = store.Upsert(testToken(t, "first@example.com", "subject-1", "refresh-1", expiry), "first", true)
+	reg, _ = store.Load()
+	if reg.Active != first.Account.ID || reg.Previous != second.Account.ID {
+		t.Errorf("active = %q, previous = %q after reactivating first", reg.Active, reg.Previous)
+	}
+
+	reg.Remove(second.Account.ID)
+	if reg.Previous != "" {
+		t.Errorf("previous = %q after removing previous account", reg.Previous)
+	}
+
+	stale := &Registry{
+		Version:  Version,
+		Active:   "acct_missing",
+		Previous: "acct_missing",
+		Accounts: []Account{{ID: "acct_a", Alias: "only"}},
+	}
+	if err := store.Save(stale); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Active != "" || loaded.Previous != "" {
+		t.Errorf("stale active/previous not cleared: active = %q, previous = %q", loaded.Active, loaded.Previous)
+	}
+
+	same := &Registry{
+		Version:  Version,
+		Active:   "acct_a",
+		Previous: "acct_a",
+		Accounts: []Account{{ID: "acct_a", Alias: "only"}},
+	}
+	if err := store.Save(same); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Previous != "" {
+		t.Errorf("previous = %q when it equals active", loaded.Previous)
 	}
 }
 

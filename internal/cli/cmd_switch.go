@@ -30,12 +30,36 @@ func (a *App) cmdSwitch(args []string) int {
 	}
 
 	var account *registry.Account
-	if fs.NArg() == 1 {
-		matches := reg.Resolve(fs.Arg(0))
-		if len(matches) != 1 {
-			return a.resolveFailure(fs.Arg(0), matches)
+	if fs.NArg() == 1 && fs.Arg(0) == "-" {
+		if reg.Previous == "" {
+			return a.failCode("previous_not_found", "Switch to another account first, then use `agy-auth switch -`.", "no previous account")
 		}
-		account = &matches[0]
+		account = reg.FindByID(reg.Previous)
+		if account == nil {
+			return a.failCode("previous_not_found", "Switch to another account first, then use `agy-auth switch -`.", "the previous account is no longer stored")
+		}
+	} else if fs.NArg() == 1 {
+		matches := reg.Resolve(fs.Arg(0))
+		switch len(matches) {
+		case 0:
+			return a.resolveFailure(fs.Arg(0), matches)
+		case 1:
+			account = &matches[0]
+		default:
+			if a.TTY && !a.JSON {
+				selected, err := a.chooseAccount(matches, reg.Active, "Select an account to activate")
+				if errors.Is(err, errCancelled) {
+					fmt.Fprintln(a.Err, "cancelled")
+					return 1
+				}
+				if err != nil {
+					return a.failCode("selection_failed", "Run `agy-auth list` and pass a query instead.", "could not select an account")
+				}
+				account = selected
+			} else {
+				return a.resolveFailure(fs.Arg(0), matches)
+			}
+		}
 	} else {
 		selected, err := a.chooseAccount(reg.Accounts, reg.Active, "Select an account to activate")
 		if errors.Is(err, errCancelled) {
@@ -79,6 +103,12 @@ func (a *App) cmdSwitch(args []string) int {
 		if reg.Accounts[i].ID == account.ID {
 			reg.Accounts[i].LastUsedAt = now.UTC()
 		}
+	}
+	if reg.Active != "" && reg.Active != account.ID {
+		reg.Previous = reg.Active
+	}
+	if reg.Previous == account.ID {
+		reg.Previous = ""
 	}
 	reg.Active = account.ID
 	if err := a.Store.Save(reg); err != nil {

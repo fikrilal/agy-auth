@@ -71,6 +71,7 @@ accounts/<id>.json
 {
   "version": 1,
   "active": "acct_...",
+  "previous": "acct_...",
   "accounts": [
     {
       "id": "acct_...",
@@ -90,7 +91,11 @@ Account IDs are the first 10 hex characters of SHA-256 over the Google subject (
 
 The registry's `active` field is a hint. `list` and `status` treat the live credential as authoritative and match it against snapshots by subject first, then fingerprint, then a unique email.
 
+`previous` records the account that was active before the last switch (including `add`, `login`, and `import --activate`). `switch -` uses it; it is cleared when that account is removed, when the registry no longer contains it, or when it equals `active`.
+
 ## Switching
+
+Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. Ambiguous matches open a candidate picker in a terminal; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects `previous`.
 
 1. Load `accounts/<id>.json`.
 2. Validate that it contains an access token or refresh token.
@@ -98,7 +103,7 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 4. Write the raw document to:
    - the keyring (`gemini` / `antigravity`) via go-keyring, and
    - the file fallback, atomically with mode `0600`.
-5. Update `active` and `last_used_at`.
+5. Update `active`, `previous`, and `last_used_at`.
 6. Print a reminder to restart agy.
 
 go-keyring's Linux `Set` uses Secret Service `CreateItem(..., replace=true)` with attributes `service` and `username`. It replaces agy's existing item in place, preserving a single entry.
@@ -111,7 +116,7 @@ The account snapshots are authoritative. If `registry.json` is lost or corrupted
 agy-auth import ~/.config/agy-auth/accounts
 ```
 
-This recreates entries from the raw credentials (email and subject come from the ID token). Aliases, `added_at`, and `last_used_at` are not stored in the snapshots, so they are lost unless you back up `registry.json`.
+This recreates entries from the raw credentials (email and subject come from the ID token). Aliases, `active`, `previous`, `added_at`, and `last_used_at` are not stored in the snapshots, so they are lost unless you back up `registry.json`.
 
 ## OAuth login
 

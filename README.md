@@ -12,6 +12,7 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 
 - Store any number of `agy` accounts.
 - Switch by row number, alias, email, or account ID prefix.
+- Toggle back to the previous account with `switch -`.
 - Add the account that is currently signed in (`add`).
 - Add another account through Google OAuth with PKCE (`login`) without touching the current credential first.
 - Import and export raw credential JSON.
@@ -85,6 +86,9 @@ agy-auth login --alias work
 # Inspect and switch.
 agy-auth list
 agy-auth switch work
+
+# Toggle back to the account that was active before the last switch.
+agy-auth switch -
 ```
 
 After switching, restart `agy`. An already-running `agy` process keeps the old credential in memory.
@@ -96,7 +100,7 @@ After switching, restart `agy`. An already-running `agy` process keeps the old c
 | `agy-auth list [--active] [--no-sync]` | List stored accounts and the live account |
 | `agy-auth add [--alias <alias>]` | Save the account currently signed in to agy |
 | `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
-| `agy-auth switch [<query>]` | Switch interactively or by query |
+| `agy-auth switch [<query>|-]` | Switch interactively, by query, or back to the previous account |
 | `agy-auth remove [<query>...] [--all] [--logout] [--yes]` | Remove stored accounts |
 | `agy-auth alias set <query> <alias>` | Set an alias |
 | `agy-auth alias clear <query>` | Clear an alias |
@@ -147,6 +151,8 @@ The document looks like this:
 ```
 
 `switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. `agy` refreshes expired access tokens itself with the stored refresh token.
+
+Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
 
 See [docs/internals.md](docs/internals.md) for the exact storage and OAuth details.
 
@@ -216,7 +222,7 @@ Usage and operation errors use the same envelope:
 
 `command` is always the canonical command name, even when an alias is used.
 
-Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `credential_not_found`, `credential_error`, `credential_write_failed`, `registry_error`, `state_uncertain`, `oauth_error`, `import_failed`, `invalid_credential`, `export_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
+Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `registry_error`, `state_uncertain`, `oauth_error`, `import_failed`, `invalid_credential`, `export_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
 
 `ambiguous_query` errors include a `candidates` array with account IDs, emails, and aliases. Hints are included when there is a concrete recovery step.
 
