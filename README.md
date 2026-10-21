@@ -1,5 +1,9 @@
 # agy-auth
 
+[![npm](https://img.shields.io/npm/v/@fikrilal/agy-auth?label=npm)](https://www.npmjs.com/package/@fikrilal/agy-auth)
+[![CI](https://github.com/fikrilal/agy-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/fikrilal/agy-auth/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/fikrilal/agy-auth)](LICENSE)
+
 `agy-auth` is an unofficial multi-account switcher for [Google Antigravity CLI](https://antigravity.google/docs/cli/overview) (`agy`), modeled on [codex-auth](https://github.com/Loongphy/codex-auth).
 
 Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, switches the live credential, and lets you keep personal, work, or test accounts side by side.
@@ -19,6 +23,8 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 
 ### npm (recommended)
 
+The package is published as `@fikrilal/agy-auth` on npm.
+
 ```shell
 npm install -g @fikrilal/agy-auth
 agy-auth version
@@ -32,7 +38,7 @@ npx @fikrilal/agy-auth list
 
 > The unscoped npm name `agy-auth` belongs to an unrelated project. Install the scoped package above, which provides the `agy-auth` command.
 
-Until the package is published, install directly from this repository:
+For development, install from a local checkout:
 
 ```shell
 git clone https://github.com/fikrilal/agy-auth.git
@@ -214,7 +220,7 @@ Example:
 The npm package is `@fikrilal/agy-auth`. `npm pack` cross-compiles all six
 platform binaries into `npm/vendor/` and the Node shim in `npm/bin/agy-auth.js`
 dispatches to the right one. The GitHub release workflow publishes the package
-when an `NPM_TOKEN` secret is configured.
+using the `NPM_TOKEN` secret.
 
 See [docs/release.md](docs/release.md) for the release process.
 
@@ -235,6 +241,14 @@ AGY_AUTH_KEYRING_TEST=1 go test ./internal/agy -run TestKeyringRoundTrip -v
 ```
 
 It uses a throwaway service name (`agy-auth-selftest`) and never touches the `gemini`/`antigravity` entry.
+
+## Documentation
+
+- [Internals](docs/internals.md) — credential storage, registry, switching, OAuth
+- [Release process](docs/release.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
 ## Disclaimer
 

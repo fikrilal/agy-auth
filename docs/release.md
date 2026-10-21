@@ -16,7 +16,9 @@ The npm package is `@fikrilal/agy-auth`; the installed command is `agy-auth`.
    `README.md`. Alternatively, create an npm organization named `fikrilal` and
    publish under it.
 
-2. Create an npm **Automation** token with publish rights.
+2. Create a granular access token with read/write access to `@fikrilal/agy-auth` (or the `@fikrilal` scope) and **Bypass 2FA** enabled.
+
+   > npm is tightening bypass-2FA tokens for direct publishing. If the release workflow starts failing with `403`, move to npm trusted publishing (OIDC) or a supported token type.
 
 3. Add it to GitHub as the `NPM_TOKEN` repository secret:
 
@@ -34,11 +36,11 @@ it into the Go binary with `-X github.com/fikrilal/agy-auth/internal/cli.Version
 so `agy-auth version` matches the npm package version.
 
 1. Update `"version"` in `package.json`.
-2. Update `CHANGELOG.md` if you maintain one.
+2. Add an entry to `CHANGELOG.md`.
 3. Commit and tag:
 
    ```shell
-   git add package.json
+   git add package.json CHANGELOG.md
    git commit -m "Release v0.2.0"
    git tag v0.2.0
    git push origin main --tags

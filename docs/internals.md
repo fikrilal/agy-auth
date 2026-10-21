@@ -42,6 +42,20 @@ Both stores contain the same JSON document:
 
 `auth_method` is `consumer` for personal accounts. Additional values may exist for enterprise and other flows.
 
+## Flow
+
+```text
+agy credential (keyring or file)
+        │  add / list
+        ▼
+~/.config/agy-auth/accounts/<id>.json
+        │  switch
+        ▼
+keyring + file mirror → restart agy
+```
+
+The registry is only an index; the account snapshots are the source of truth.
+
 ## Registry
 
 Default directory: `os.UserConfigDir()/agy-auth` (for example `~/.config/agy-auth` on Linux). Override with `AGY_AUTH_HOME`.
@@ -89,6 +103,16 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 
 go-keyring's Linux `Set` uses Secret Service `CreateItem(..., replace=true)` with attributes `service` and `username`. It replaces agy's existing item in place, preserving a single entry.
 
+## Recovering the registry
+
+The account snapshots are authoritative. If `registry.json` is lost or corrupted, rebuild it from the snapshots:
+
+```shell
+agy-auth import ~/.config/agy-auth/accounts
+```
+
+This recreates entries from the raw credentials (email and subject come from the ID token). Aliases, `added_at`, and `last_used_at` are not stored in the snapshots, so they are lost unless you back up `registry.json`.
+
 ## OAuth login
 
 The login flow uses the public Antigravity/Gemini OAuth client embedded in the agy binary. The repository does not contain the client ID or secret; both are discovered at runtime from the installed `agy` binary by matching SHA-256 fingerprints. Override them with `AGY_AUTH_CLIENT_ID` and `AGY_AUTH_CLIENT_SECRET` if Google rotates them.
@@ -106,6 +130,29 @@ The token exchange sends `client_id`, `client_secret`, `code`, `code_verifier`, 
 
 If Google does not return a new refresh token during a re-login, `agy-auth` reuses the refresh token from the existing snapshot with the same subject.
 
+## Updating OAuth client fingerprints
+
+The repository stores only SHA-256 fingerprints of the Antigravity OAuth client ID and secret. The real values are discovered from the installed `agy` binary at login time.
+
+If Google rotates the client:
+
+1. Extract the candidate values from the local `agy` binary:
+
+   ```shell
+   strings "$(command -v agy)" | grep -oE 'GOCSPX-[A-Za-z0-9_-]+|[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com' | sort -u
+   ```
+
+2. Identify the client used by Antigravity and compute its hashes:
+
+   ```shell
+   printf %s '<client-id>' | sha256sum
+   printf %s '<client-secret>' | sha256sum
+   ```
+
+3. Replace `antigravityClientIDHash` and `antigravityClientSecretHash` in `internal/oauth/oauth.go`.
+4. Do not commit the values themselves; keep only the hashes.
+5. Verify with `agy-auth login --no-browser` and `go test ./internal/oauth`.
+
 ## File permissions and atomic writes
 
 Every write uses a temporary file in the destination directory, `chmod 0600`, `fsync`, and `rename`. This avoids partially written credentials and keeps permissions stable on Unix.
@@ -115,6 +162,16 @@ Every write uses a temporary file in the destination directory, `chmod 0600`, `f
 ```shell
 go test ./...
 go vet ./...
+```
+
+For manual CLI tests, use a temporary registry and the file backend:
+
+```shell
+TMP=$(mktemp -d)
+AGY_AUTH_HOME="$TMP/config" \
+AGY_AUTH_STORAGE=file \
+AGY_AUTH_AGY_TOKEN_FILE="$TMP/token" \
+./bin/agy-auth list
 ```
 
 The opt-in keyring test:
