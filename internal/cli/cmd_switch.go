@@ -39,27 +39,11 @@ func (a *App) cmdSwitch(args []string) int {
 			return a.failCode("previous_not_found", "Switch to another account first, then use `agy-auth switch -`.", "the previous account is no longer stored")
 		}
 	} else if fs.NArg() == 1 {
-		matches := reg.Resolve(fs.Arg(0))
-		switch len(matches) {
-		case 0:
-			return a.resolveFailure(fs.Arg(0), matches)
-		case 1:
-			account = &matches[0]
-		default:
-			if a.TTY && !a.JSON {
-				selected, err := a.chooseAccount(matches, reg.Active, "Select an account to activate")
-				if errors.Is(err, errCancelled) {
-					fmt.Fprintln(a.Err, "cancelled")
-					return 1
-				}
-				if err != nil {
-					return a.failCode("selection_failed", "Run `agy-auth list` and pass a query instead.", "could not select an account")
-				}
-				account = selected
-			} else {
-				return a.resolveFailure(fs.Arg(0), matches)
-			}
+		selected, code := a.resolveOne(reg, fs.Arg(0), "Select an account to activate")
+		if code != 0 {
+			return code
 		}
+		account = selected
 	} else {
 		selected, err := a.chooseAccount(reg.Accounts, reg.Active, "Select an account to activate")
 		if errors.Is(err, errCancelled) {

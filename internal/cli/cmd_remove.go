@@ -42,11 +42,11 @@ func (a *App) cmdRemove(args []string) int {
 		selected = append(selected, reg.Accounts...)
 	case fs.NArg() > 0:
 		for _, query := range fs.Args() {
-			matches := reg.Resolve(query)
-			if len(matches) != 1 {
-				return a.resolveFailure(query, matches)
+			account, code := a.resolveOne(reg, query, "Select an account to remove")
+			if code != 0 {
+				return code
 			}
-			selected = append(selected, matches[0])
+			selected = append(selected, *account)
 		}
 	default:
 		fmt.Fprintln(a.Out, "Stored accounts:")
@@ -69,11 +69,11 @@ func (a *App) cmdRemove(args []string) int {
 				if token == "" {
 					continue
 				}
-				matches := reg.Resolve(token)
-				if len(matches) != 1 {
-					return a.resolveFailure(token, matches)
+				account, code := a.resolveOne(reg, token, "Select an account to remove")
+				if code != 0 {
+					return code
 				}
-				selected = append(selected, matches[0])
+				selected = append(selected, *account)
 			}
 		}
 	}
@@ -116,6 +116,20 @@ func (a *App) cmdRemove(args []string) int {
 	for _, account := range selected {
 		removeIDs[account.ID] = true
 	}
+	if matched != nil && !*logout && removeIDs[matched.ID] {
+		a.warn("agy is still signed in to %s; the live credential was kept (use --logout to remove it)", matched.DisplayName())
+	}
+
+	for _, account := range selected {
+		if err := a.Store.DeleteToken(account.ID); err != nil {
+			return a.errorDoc(1, ErrorDoc{
+				Code:    "state_uncertain",
+				Message: fmt.Sprintf("could not remove the stored credential for %s", account.DisplayName()),
+				Hint:    "Some snapshots may have been deleted; run `agy-auth list` and `agy-auth import` to reconcile.",
+			})
+		}
+	}
+
 	loggedOut := false
 	if *logout && current != nil && (matched == nil || removeIDs[matched.ID]) {
 		if err := a.Storage.Delete(); err != nil {
@@ -130,13 +144,6 @@ func (a *App) cmdRemove(args []string) int {
 
 	removed := make([]registry.Account, 0, len(selected))
 	for _, account := range selected {
-		if matched != nil && matched.ID == account.ID && !*logout {
-			a.warn("agy is still signed in to %s; the live credential was kept (use --logout to remove it)", account.DisplayName())
-		}
-		if err := a.Store.DeleteToken(account.ID); err != nil {
-			a.warn("%v; keeping the registry entry", err)
-			continue
-		}
 		if reg.Remove(account.ID) {
 			removed = append(removed, account)
 		}
@@ -144,7 +151,7 @@ func (a *App) cmdRemove(args []string) int {
 	if err := a.Store.Save(reg); err != nil {
 		return a.errorDoc(1, ErrorDoc{
 			Code:    "state_uncertain",
-			Message: "the live credential may have been removed but the registry could not be updated",
+			Message: "the snapshots were removed but the registry could not be updated",
 			Hint:    "Run `agy-auth list` to verify the stored accounts.",
 		})
 	}

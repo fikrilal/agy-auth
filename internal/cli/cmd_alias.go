@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/fikrilal/agy-auth/internal/registry"
@@ -38,24 +39,33 @@ func (a *App) cmdAliasSet(args []string) int {
 	if err != nil {
 		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
-	matches := reg.Resolve(fs.Arg(0))
-	if len(matches) != 1 {
-		return a.resolveFailure(fs.Arg(0), matches)
+	account, code := a.resolveOne(reg, fs.Arg(0), "Select an account")
+	if code != 0 {
+		return code
 	}
-	if err := reg.SetAlias(matches[0].ID, fs.Arg(1)); err != nil {
+	previous := account.Alias
+	display := account.DisplayName()
+	if err := reg.SetAlias(account.ID, fs.Arg(1)); err != nil {
 		return a.usageFor("alias", "%s", err)
 	}
 	if err := a.Store.Save(reg); err != nil {
 		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the account registry")
 	}
-	account := reg.FindByID(matches[0].ID)
+	updated := reg.FindByID(account.ID)
 	if a.JSON {
-		if err := a.emitJSON(account); err != nil {
+		if err := a.emitJSON(updated); err != nil {
 			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
-	fmt.Fprintf(a.Out, "Alias for %s is now %q.\n", account.DisplayName(), account.Alias)
+	switch {
+	case previous == "":
+		fmt.Fprintf(a.Out, "Set alias %q for %s.\n", updated.Alias, display)
+	case previous == updated.Alias:
+		fmt.Fprintf(a.Out, "Alias for %s is already %q.\n", updated.DisplayName(), updated.Alias)
+	default:
+		fmt.Fprintf(a.Out, "Updated alias for %s from %q to %q.\n", display, previous, updated.Alias)
+	}
 	return 0
 }
 
@@ -71,11 +81,11 @@ func (a *App) cmdAliasClear(args []string) int {
 	if err != nil {
 		return a.failCode("registry_error", "Run `agy-auth status` or `agy-auth path` to check storage.", "could not read the account registry")
 	}
-	matches := reg.Resolve(fs.Arg(0))
-	if len(matches) != 1 {
-		return a.resolveFailure(fs.Arg(0), matches)
+	account, code := a.resolveOne(reg, fs.Arg(0), "Select an account")
+	if code != 0 {
+		return code
 	}
-	account := reg.FindByID(matches[0].ID)
+	display := account.DisplayName()
 	previous := account.Alias
 	if err := reg.ClearAlias(account.ID); err != nil {
 		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not clear the alias")
@@ -83,16 +93,17 @@ func (a *App) cmdAliasClear(args []string) int {
 	if err := a.Store.Save(reg); err != nil {
 		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the account registry")
 	}
+	updated := reg.FindByID(account.ID)
 	if a.JSON {
-		if err := a.emitJSON(reg.FindByID(account.ID)); err != nil {
+		if err := a.emitJSON(updated); err != nil {
 			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
 	}
 	if previous == "" {
-		fmt.Fprintf(a.Out, "%s has no alias.\n", account.DisplayName())
+		fmt.Fprintf(a.Out, "%s has no alias.\n", display)
 	} else {
-		fmt.Fprintf(a.Out, "Cleared alias %q from %s.\n", previous, account.Email)
+		fmt.Fprintf(a.Out, "Cleared alias %q for %s.\n", previous, display)
 	}
 	return 0
 }
@@ -143,4 +154,27 @@ func (a *App) resolveFailure(query string, matches []registry.Account) int {
 		Hint:       "Use a row number, exact email, alias, or account ID prefix.",
 		Candidates: candidates,
 	})
+}
+
+func (a *App) resolveOne(reg *registry.Registry, query, title string) (*registry.Account, int) {
+	matches := reg.Resolve(query)
+	switch len(matches) {
+	case 0:
+		return nil, a.resolveFailure(query, matches)
+	case 1:
+		return &matches[0], 0
+	default:
+		if a.TTY && !a.JSON {
+			selected, err := a.chooseAccount(matches, reg.Active, title)
+			if errors.Is(err, errCancelled) {
+				fmt.Fprintln(a.Err, "cancelled")
+				return nil, 1
+			}
+			if err != nil {
+				return nil, a.failCode("selection_failed", "Run `agy-auth list` and pass a query instead.", "could not select an account")
+			}
+			return selected, 0
+		}
+		return nil, a.resolveFailure(query, matches)
+	}
 }

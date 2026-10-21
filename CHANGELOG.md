@@ -22,6 +22,9 @@ All notable changes to this project are documented here.
 - Query resolution now prefers row number, exact account ID, exact alias, exact email, ID prefix, then substring.
 - Ambiguous switches open a candidate picker in a terminal; non-interactive and JSON calls return `ambiguous_query` with candidates.
 - Added `switch -` to return to the previously active account; `registry.json` now records `previous`.
+- Ambiguous `alias`, `remove`, and `export` selectors now use the same candidate picker as `switch`.
+- `remove` resolves and deduplicates all selectors before deleting; snapshot deletion failures return `state_uncertain` without saving registry changes.
+- Alias messages distinguish set, already set, updated, and cleared.
 
 ## [0.1.0] - 2026-10-20
 

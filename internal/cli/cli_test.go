@@ -608,6 +608,193 @@ func TestJSONWarningsStayOnStderr(t *testing.T) {
 	}
 }
 
+func TestAliasMessages(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"alias", "set", "1", "work"}, "Set alias"},
+		{[]string{"alias", "set", "1", "work"}, "already"},
+		{[]string{"alias", "set", "1", "office"}, "Updated alias"},
+		{[]string{"alias", "clear", "1"}, "Cleared alias"},
+	}
+	for _, tc := range cases {
+		app, out, errOut := env.app("")
+		if code := app.Run(tc.args); code != 0 {
+			t.Fatalf("%v exit = %d, stderr = %s", tc.args, code, errOut)
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Errorf("%v output = %q, want %q", tc.args, out.String(), tc.want)
+		}
+	}
+}
+
+func TestAliasAmbiguousPicker(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	store := registry.NewStore(env.storeDir)
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstMatches := reg.Resolve("first")
+	if len(firstMatches) != 1 {
+		t.Fatalf("first account matches = %d", len(firstMatches))
+	}
+	firstID := firstMatches[0].ID
+
+	app, out, errOut := env.app("1\n")
+	app.TTY = true
+	if code := app.Run([]string{"alias", "set", "example.com", "chosen"}); code != 0 {
+		t.Fatalf("alias exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "Select an account") {
+		t.Errorf("missing candidate picker: %q", out.String())
+	}
+	reg, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := reg.FindByID(firstID)
+	if account == nil || account.Alias != "chosen" {
+		t.Errorf("first account = %+v", account)
+	}
+}
+
+func TestRemoveAtomicResolution(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"remove", "first", "missing", "--yes", "--json"}); code != 1 {
+		t.Fatalf("remove exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "account_not_found" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 2 {
+		t.Errorf("accounts = %d after failed resolution", len(reg.Accounts))
+	}
+	if _, err := os.Stat(env.tokenPath); err != nil {
+		t.Errorf("first snapshot was removed before resolution completed: %v", err)
+	}
+}
+
+func TestRemoveDeduplicatesSelectors(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"remove", "first", "first", "--yes", "--json"}); code != 0 {
+		t.Fatalf("remove exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var data struct {
+		Removed []registry.Account `json:"removed"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Removed) != 1 {
+		t.Errorf("removed = %d, want 1", len(data.Removed))
+	}
+
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 1 {
+		t.Errorf("accounts = %d, want 1", len(reg.Accounts))
+	}
+}
+
+func TestRemoveAmbiguousPicker(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	store := registry.NewStore(env.storeDir)
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondMatches := reg.Resolve("second")
+	if len(secondMatches) != 1 {
+		t.Fatalf("second account matches = %d", len(secondMatches))
+	}
+	secondID := secondMatches[0].ID
+
+	app, out, errOut := env.app("2\n")
+	app.TTY = true
+	if code := app.Run([]string{"remove", "example.com", "--yes"}); code != 0 {
+		t.Fatalf("remove exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "Select an account to remove") {
+		t.Errorf("missing candidate picker: %q", out.String())
+	}
+	reg, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 1 || reg.FindByID(secondID) != nil {
+		t.Errorf("unexpected accounts after remove: %+v", reg.Accounts)
+	}
+}
+
+func TestExportAmbiguousPicker(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	dir := filepath.Join(env.dir, "export-picker")
+	app, out, errOut := env.app("1\n")
+	app.TTY = true
+	if code := app.Run([]string{"export", "--dir", dir, "example.com"}); code != 0 {
+		t.Fatalf("export exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "Select an account to export") {
+		t.Errorf("missing candidate picker: %q", out.String())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("exported files = %d", len(entries))
+	}
+}
+
 func TestJSONInteractiveGuards(t *testing.T) {
 	env := newTestEnv(t, false)
 	cases := []struct {

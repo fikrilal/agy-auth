@@ -95,7 +95,7 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 
 ## Switching
 
-Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. Ambiguous matches open a candidate picker in a terminal; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects `previous`.
+Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. Ambiguous matches open a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects `previous`.
 
 1. Load `accounts/<id>.json`.
 2. Validate that it contains an access token or refresh token.
@@ -107,6 +107,10 @@ Queries resolve in this order: row number, exact account ID, exact alias, exact 
 6. Print a reminder to restart agy.
 
 go-keyring's Linux `Set` uses Secret Service `CreateItem(..., replace=true)` with attributes `service` and `username`. It replaces agy's existing item in place, preserving a single entry.
+
+## Removal
+
+`remove` resolves and deduplicates every selector before confirmation or deletion. It deletes all selected snapshot files first, then optionally deletes the live credential with `--logout`, then removes the registry entries and saves. If a snapshot deletion fails, no registry mutation is committed and the command returns `state_uncertain`; some snapshots may already be gone, so reconcile with `agy-auth list` and `agy-auth import`.
 
 ## Recovering the registry
 

@@ -131,11 +131,11 @@ func (a *App) cmdExport(args []string) int {
 		accounts = append(accounts, reg.Accounts...)
 	} else {
 		for _, query := range fs.Args() {
-			matches := reg.Resolve(query)
-			if len(matches) != 1 {
-				return a.resolveFailure(query, matches)
+			account, code := a.resolveOne(reg, query, "Select an account to export")
+			if code != 0 {
+				return code
 			}
-			accounts = append(accounts, matches[0])
+			accounts = append(accounts, *account)
 		}
 		accounts = dedupeAccounts(accounts)
 	}
