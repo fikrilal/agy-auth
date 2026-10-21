@@ -204,11 +204,13 @@ func (a *App) existingRefreshToken(tokenFile agy.TokenFile) string {
 
 func (a *App) finishLogin(result registry.UpsertResult, report agy.WriteReport, warnings []string) int {
 	if a.JSON {
+		for _, warning := range warnings {
+			a.warn("%s", warning)
+		}
 		if err := a.emitJSON(map[string]any{
-			"created":  result.Created,
-			"account":  result.Account,
-			"written":  report.Written,
-			"warnings": warnings,
+			"created": result.Created,
+			"account": result.Account,
+			"written": report.Written,
 		}); err != nil {
 			return a.fail("%v", err)
 		}

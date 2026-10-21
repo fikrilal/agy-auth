@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"flag"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -105,11 +106,15 @@ func TestCLILifecycle(t *testing.T) {
 	if code := app.Run([]string{"list", "--json"}); code != 0 {
 		t.Fatalf("list exit = %d", code)
 	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.SchemaVersion != 1 || envelope.Command != "list" || envelope.Error != nil {
+		t.Fatalf("unexpected list envelope: %+v", envelope)
+	}
 	var listPayload struct {
 		Accounts []accountRow `json:"accounts"`
 		Current  *accountRow  `json:"current"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &listPayload); err != nil {
+	if err := json.Unmarshal(envelope.Data, &listPayload); err != nil {
 		t.Fatal(err)
 	}
 	if len(listPayload.Accounts) != 1 {
@@ -163,8 +168,12 @@ func TestCLILifecycle(t *testing.T) {
 	if code := app.Run([]string{"--json", "list"}); code != 0 {
 		t.Fatalf("list exit = %d", code)
 	}
+	envelope = decodeTestEnvelope(t, out)
+	if envelope.Command != "list" {
+		t.Fatalf("command = %q", envelope.Command)
+	}
 	listPayload.Accounts = nil
-	if err := json.Unmarshal(out.Bytes(), &listPayload); err != nil {
+	if err := json.Unmarshal(envelope.Data, &listPayload); err != nil {
 		t.Fatal(err)
 	}
 	if len(listPayload.Accounts) != 1 || listPayload.Accounts[0].Alias != "imported" {
@@ -299,6 +308,135 @@ func TestAliasSubcommandHelp(t *testing.T) {
 	}
 }
 
+func TestJSONEnvelopeVersionAndPath(t *testing.T) {
+	env := newTestEnv(t, false)
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"-v", "--json"}); code != 0 {
+		t.Fatalf("version exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.SchemaVersion != 1 || envelope.Command != "version" || envelope.Error != nil {
+		t.Fatalf("unexpected version envelope: %+v", envelope)
+	}
+	var versionData struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(envelope.Data, &versionData); err != nil {
+		t.Fatal(err)
+	}
+	if versionData.Version != Version {
+		t.Errorf("version = %q, want %q", versionData.Version, Version)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("version stderr = %q", errOut.String())
+	}
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"paths", "--json"}); code != 0 {
+		t.Fatalf("path exit = %d, stderr = %s", code, errOut)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if envelope.SchemaVersion != 1 || envelope.Command != "path" || envelope.Error != nil {
+		t.Fatalf("unexpected path envelope: %+v", envelope)
+	}
+	var pathData map[string]any
+	if err := json.Unmarshal(envelope.Data, &pathData); err != nil {
+		t.Fatal(err)
+	}
+	registryDir, _ := pathData["registry"].(string)
+	registryFile, _ := pathData["registry_file"].(string)
+	if registryDir == "" || registryFile == "" {
+		t.Errorf("unexpected path data: %+v", pathData)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("path stderr = %q", errOut.String())
+	}
+}
+
+func TestJSONUsageErrors(t *testing.T) {
+	env := newTestEnv(t, false)
+	cases := []struct {
+		name    string
+		args    []string
+		command string
+	}{
+		{"extra positional", []string{"list", "extra", "--json"}, "list"},
+		{"unknown flag", []string{"list", "--json", "--nope"}, "list"},
+		{"unknown command", []string{"unknown-command", "--json"}, "unknown-command"},
+		{"no command", []string{"--json"}, "help"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, out, errOut := env.app("")
+			if code := app.Run(tc.args); code != 2 {
+				t.Fatalf("exit = %d, stderr = %s", code, errOut)
+			}
+			envelope := decodeTestEnvelope(t, out)
+			if envelope.SchemaVersion != 1 || envelope.Command != tc.command {
+				t.Fatalf("unexpected envelope: %+v", envelope)
+			}
+			if envelope.Error == nil {
+				t.Fatal("missing error document")
+			}
+			if envelope.Error.Code != "usage" {
+				t.Errorf("code = %q", envelope.Error.Code)
+			}
+			if envelope.Error.Message == "" || envelope.Error.Hint == "" {
+				t.Errorf("incomplete error: %+v", envelope.Error)
+			}
+			if errOut.Len() != 0 {
+				t.Errorf("stderr = %q", errOut.String())
+			}
+		})
+	}
+}
+
+func TestJSONOperationError(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"current", "--json"}); code != 1 {
+		t.Fatalf("exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.SchemaVersion != 1 || envelope.Command != "current" {
+		t.Fatalf("unexpected envelope: %+v", envelope)
+	}
+	if envelope.Error == nil || envelope.Error.Code != "operation_failed" {
+		t.Fatalf("unexpected error: %+v", envelope.Error)
+	}
+	if !strings.Contains(envelope.Error.Message, "no agy credentials") {
+		t.Errorf("message = %q", envelope.Error.Message)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestJSONWarningsStayOnStderr(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, errOut := env.app("")
+	app.JSON = true
+	app.Command = "login"
+	result := registry.UpsertResult{
+		Created: true,
+		Account: registry.Account{ID: "acct_test", Email: "user@example.com"},
+	}
+	if code := app.finishLogin(result, agy.WriteReport{}, []string{"test warning"}); code != 0 {
+		t.Fatalf("finishLogin exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Command != "login" {
+		t.Fatalf("command = %q", envelope.Command)
+	}
+	if bytes.Contains(out.Bytes(), []byte(`"warnings"`)) {
+		t.Errorf("warnings leaked into JSON: %q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "warning: test warning") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
 func TestReorderArgs(t *testing.T) {
 	fs := newTestFlagSet()
 	got := reorderArgs(fs, []string{"file.json", "--alias", "work"})
@@ -323,6 +461,33 @@ func newTestFlagSet() *flag.FlagSet {
 	fs.String("alias", "", "")
 	fs.Bool("yes", false, "")
 	return fs
+}
+
+type testEnvelope struct {
+	SchemaVersion int             `json:"schema_version"`
+	Command       string          `json:"command"`
+	Data          json.RawMessage `json:"data"`
+	Error         *testErrorDoc   `json:"error"`
+}
+
+type testErrorDoc struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Hint    string `json:"hint"`
+}
+
+func decodeTestEnvelope(t *testing.T, out *bytes.Buffer) testEnvelope {
+	t.Helper()
+	decoder := json.NewDecoder(bytes.NewReader(out.Bytes()))
+	var envelope testEnvelope
+	if err := decoder.Decode(&envelope); err != nil {
+		t.Fatalf("decode envelope: %v; output = %q", err, out.String())
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		t.Fatalf("stdout must contain exactly one JSON document, extra decode = %v; output = %q", err, out.String())
+	}
+	return envelope
 }
 
 func setTestOAuthClient(t *testing.T) {

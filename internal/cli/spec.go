@@ -205,3 +205,16 @@ func specForName(name string) *CommandSpec {
 	}
 	return &commandSpecs[index]
 }
+
+func canonicalCommand(name string) string {
+	switch name {
+	case "--version", "-v":
+		return "version"
+	case "-h", "--help":
+		return "help"
+	}
+	if spec := specForName(name); spec != nil {
+		return spec.Name
+	}
+	return name
+}

@@ -9,11 +9,38 @@ import (
 	"unicode/utf8"
 )
 
-func (a *App) emitJSON(value any) error {
+func (a *App) emitJSON(data any) error {
+	return a.writeJSON(Envelope{
+		SchemaVersion: jsonSchemaVersion,
+		Command:       a.commandName(),
+		Data:          data,
+	})
+}
+
+func (a *App) emitJSONError(exit int, doc ErrorDoc) int {
+	envelope := Envelope{
+		SchemaVersion: jsonSchemaVersion,
+		Command:       a.commandName(),
+		Error:         &doc,
+	}
+	if err := a.writeJSON(envelope); err != nil {
+		fmt.Fprintf(a.Err, "error: %s\n", doc.Message)
+	}
+	return exit
+}
+
+func (a *App) writeJSON(value any) error {
 	encoder := json.NewEncoder(a.Out)
 	encoder.SetIndent("", "  ")
 	encoder.SetEscapeHTML(false)
 	return encoder.Encode(value)
+}
+
+func (a *App) commandName() string {
+	if a.Command == "" {
+		return "unknown"
+	}
+	return a.Command
 }
 
 type accountRow struct {

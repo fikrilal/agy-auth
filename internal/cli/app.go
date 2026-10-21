@@ -28,6 +28,7 @@ type App struct {
 	OutTTY     bool
 	JSON       bool
 	NoColor    bool
+	Command    string
 	StdinFile  *os.File
 	StdoutFile *os.File
 	StderrFile *os.File
@@ -57,11 +58,16 @@ func New() (*App, error) {
 func (a *App) Run(args []string) int {
 	args = a.extractGlobals(args)
 	if len(args) == 0 {
+		a.Command = "help"
+		if a.JSON {
+			return a.usageTop("no command specified")
+		}
 		a.printHelp()
 		return 0
 	}
 
 	command := args[0]
+	a.Command = canonicalCommand(command)
 	rest := args[1:]
 	switch command {
 	case "help", "-h", "--help":
@@ -177,7 +183,11 @@ func isBoolFlag(definition *flag.Flag) bool {
 }
 
 func (a *App) fail(format string, args ...any) int {
-	fmt.Fprintf(a.Err, "error: "+format+"\n", args...)
+	message := fmt.Sprintf(format, args...)
+	if a.JSON {
+		return a.emitJSONError(1, ErrorDoc{Code: "operation_failed", Message: message})
+	}
+	fmt.Fprintf(a.Err, "error: %s\n", message)
 	return 1
 }
 

@@ -166,35 +166,55 @@ This saves the current account, clears the live credential, launches `agy`, and 
 
 ## JSON output
 
-`list`, `add`, `login`, `switch`, `remove`, `current`, `status`, `import`, `export`, `path`, and `version` support `--json`.
+`list`, `add`, `login`, `switch`, `remove`, `current`, `status`, `import`, `export`, `path`, and `version` support `--json`. Every response is one versioned envelope on stdout; warnings go to stderr.
 
-Example:
+Example (`agy-auth list --json`):
 
 ```json
 {
-  "accounts": [
-    {
+  "schema_version": 1,
+  "command": "list",
+  "data": {
+    "accounts": [
+      {
+        "number": 1,
+        "id": "acct_cb5897f277",
+        "active": true,
+        "stored": true,
+        "email": "user@example.com",
+        "alias": "personal",
+        "auth_method": "consumer",
+        "expires_at": "2026-10-20T23:02:46.46381726+07:00",
+        "expired": false,
+        "added_at": "2026-10-20T15:58:44Z"
+      }
+    ],
+    "current": {
       "number": 1,
       "id": "acct_cb5897f277",
       "active": true,
       "stored": true,
-      "email": "user@example.com",
-      "alias": "personal",
-      "auth_method": "consumer",
-      "expires_at": "2026-10-20T23:02:46.46381726+07:00",
-      "expired": false,
-      "added_at": "2026-10-20T15:58:44Z"
+      "email": "user@example.com"
     }
-  ],
-  "current": {
-    "number": 1,
-    "id": "acct_cb5897f277",
-    "active": true,
-    "stored": true,
-    "email": "user@example.com"
   }
 }
 ```
+
+Usage and operation errors use the same envelope:
+
+```json
+{
+  "schema_version": 1,
+  "command": "list",
+  "error": {
+    "code": "usage",
+    "message": "list takes no arguments",
+    "hint": "Run `agy-auth list --help` for help and examples."
+  }
+}
+```
+
+`command` is always the canonical command name, even when an alias is used.
 
 ## Exit codes
 

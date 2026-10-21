@@ -15,6 +15,7 @@ All notable changes to this project are documented here.
 - Commit messages use Conventional Commits and reject bot co-author trailers.
 - CLI help is generated from a single command specification.
 - Usage errors print `error:`, `Usage:`, and a `hint:` and exit `2`.
+- `--json` responses are versioned envelopes with `schema_version`, `command`, and `data` or `error`; warnings stay on stderr.
 
 ## [0.1.0] - 2026-10-20
 

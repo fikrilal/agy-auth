@@ -86,13 +86,18 @@ func (a *App) usage(spec *CommandSpec, format string, args ...any) int {
 	if spec == nil {
 		return a.usageTop(format, args...)
 	}
-	fmt.Fprintf(a.Err, "error: "+format+"\n\n", args...)
+	message := fmt.Sprintf(format, args...)
+	hint := fmt.Sprintf("Run `agy-auth %s --help` for help and examples.", spec.Name)
+	if a.JSON {
+		return a.emitJSONError(2, ErrorDoc{Code: "usage", Message: message, Hint: hint})
+	}
+	fmt.Fprintf(a.Err, "error: %s\n\n", message)
 	fmt.Fprintln(a.Err, "Usage:")
 	for _, line := range spec.Usage {
 		fmt.Fprintf(a.Err, "  %s\n", line)
 	}
 	fmt.Fprintln(a.Err)
-	fmt.Fprintf(a.Err, "hint: Run `agy-auth %s --help` for help and examples.\n", spec.Name)
+	fmt.Fprintf(a.Err, "hint: %s\n", hint)
 	return 2
 }
 
@@ -101,11 +106,16 @@ func (a *App) usageFor(name, format string, args ...any) int {
 }
 
 func (a *App) usageTop(format string, args ...any) int {
-	fmt.Fprintf(a.Err, "error: "+format+"\n\n", args...)
+	message := fmt.Sprintf(format, args...)
+	hint := "Run `agy-auth help` for usage."
+	if a.JSON {
+		return a.emitJSONError(2, ErrorDoc{Code: "usage", Message: message, Hint: hint})
+	}
+	fmt.Fprintf(a.Err, "error: %s\n\n", message)
 	fmt.Fprintln(a.Err, "Usage:")
 	fmt.Fprintln(a.Err, "  agy-auth <command> [options]")
 	fmt.Fprintln(a.Err)
-	fmt.Fprintln(a.Err, "hint: Run `agy-auth help` for usage.")
+	fmt.Fprintf(a.Err, "hint: %s\n", hint)
 	return 2
 }
 
