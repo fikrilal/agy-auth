@@ -45,6 +45,26 @@ var (
 type Window struct {
 	RemainingPercent int        `json:"remaining_percent"`
 	ResetsAt         *time.Time `json:"resets_at,omitempty"`
+	Group            string     `json:"group,omitempty"`
+}
+
+func (s Snapshot) LimitGroup() string {
+	switch {
+	case s.FiveHour == nil && s.Weekly == nil:
+		return ""
+	case s.FiveHour == nil:
+		return s.Weekly.Group
+	case s.Weekly == nil:
+		return s.FiveHour.Group
+	case s.Weekly.RemainingPercent < s.FiveHour.RemainingPercent:
+		return s.Weekly.Group
+	case s.FiveHour.RemainingPercent < s.Weekly.RemainingPercent:
+		return s.FiveHour.Group
+	case s.FiveHour.Group != "":
+		return s.FiveHour.Group
+	default:
+		return s.Weekly.Group
+	}
 }
 
 type Snapshot struct {
@@ -658,7 +678,7 @@ func applySummary(snapshot *Snapshot, summary quotaSummaryResponse) {
 			if window == "" {
 				continue
 			}
-			candidate := Window{RemainingPercent: percent(*bucket.RemainingFraction)}
+			candidate := Window{RemainingPercent: percent(*bucket.RemainingFraction), Group: group.DisplayName}
 			if reset, ok := parseReset(bucket.ResetTime); ok {
 				candidate.ResetsAt = &reset
 			}

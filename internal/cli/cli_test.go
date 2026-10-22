@@ -2039,8 +2039,8 @@ func usageSnapshot() usage.Snapshot {
 	weeklyReset := testNow.Add(6 * 24 * time.Hour)
 	return usage.Snapshot{
 		Plan:      "Pro",
-		FiveHour:  &usage.Window{RemainingPercent: 75, ResetsAt: &fiveReset},
-		Weekly:    &usage.Window{RemainingPercent: 50, ResetsAt: &weeklyReset},
+		FiveHour:  &usage.Window{RemainingPercent: 75, ResetsAt: &fiveReset, Group: "Claude and GPT models"},
+		Weekly:    &usage.Window{RemainingPercent: 50, ResetsAt: &weeklyReset, Group: "Gemini Models"},
 		UpdatedAt: testNow,
 	}
 }
@@ -2058,7 +2058,7 @@ func TestListUsageColumnsAndJSON(t *testing.T) {
 	if code := app.Run([]string{"list", "--no-sync"}); code != 0 {
 		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
 	}
-	for _, want := range []string{"PLAN", "5H", "WEEKLY", "Pro", "75%", "50%"} {
+	for _, want := range []string{"PLAN", "5H", "WEEKLY", "GROUP", "Gemini Models", "Pro", "75%", "50%"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("list output missing %q: %q", want, out.String())
 		}
@@ -2088,6 +2088,9 @@ func TestListUsageColumnsAndJSON(t *testing.T) {
 	}
 	if row.Usage.FiveHour.RemainingPercent != 75 || row.Usage.Weekly.RemainingPercent != 50 {
 		t.Errorf("usage = %+v", row.Usage)
+	}
+	if row.Usage.Weekly.Group != "Gemini Models" || row.Usage.LimitGroup() != "Gemini Models" {
+		t.Errorf("usage group = %+v", row.Usage)
 	}
 	if row.UsageError != "" {
 		t.Errorf("usage error = %q", row.UsageError)
@@ -2162,7 +2165,7 @@ func TestRenderAccountTableUsageWidth(t *testing.T) {
 		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "user@example.com", Plan: "Pro", Usage: &snapshot},
 	}
 	app.renderAccountRows(rows, testNow)
-	for _, want := range []string{"PLAN", "5H", "WEEKLY", "75%", "50%"} {
+	for _, want := range []string{"PLAN", "5H", "WEEKLY", "GROUP", "Gemini Models", "75%", "50%"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("table missing %q: %q", want, out.String())
 		}

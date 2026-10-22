@@ -18,6 +18,7 @@ All notable changes to this project are documented here.
 - Plan and shared 5-hour/weekly quota columns in `list` and the live views, backed by the Antigravity Code Assist quota API with a 60-second cache (or the live interval) and stale-value fallback.
 - `list --no-usage` to skip quota lookups.
 - `switch --live` auto-switch now prefers fresh named quota groups (Gemini, Claude/GPT, and tier-specific groups), falling back to the shared summary/model detail only when groups are unavailable; stale data is ignored.
+- List rows now include a `GROUP` column naming the limiting quota group; window JSON values may include `group`.
 - List JSON rows now include `plan`, `usage`, and `usage_error`.
 - `agy-auth usage [<query>]` for Antigravity quota groups: Gemini Models, Claude and GPT models, and tier-specific groups such as Ultra.
 - `agy-auth usage --all` to compare the same group rows across every stored account.

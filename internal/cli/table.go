@@ -45,9 +45,10 @@ func accountTableLayout(rows []accountRow) ([]tableColumn, bool) {
 			tableColumn{Header: "PLAN", Min: 4, Max: 8, Priority: 2},
 			tableColumn{Header: "5H", Min: 4, Max: 5, Priority: 3, Right: true},
 			tableColumn{Header: "WEEKLY", Min: 6, Max: 10, Priority: 4, Right: true},
+			tableColumn{Header: "GROUP", Min: 12, Max: 24, Priority: 5},
 		)
 		for _, column := range status {
-			column.Priority += 3
+			column.Priority += 4
 			columns = append(columns, column)
 		}
 		return columns, true

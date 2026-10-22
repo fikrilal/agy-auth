@@ -415,6 +415,20 @@ func TestSummaryChoosesMostConstrainedWindow(t *testing.T) {
 	}
 }
 
+func TestSnapshotLimitGroup(t *testing.T) {
+	snapshot := Snapshot{
+		FiveHour: &Window{RemainingPercent: 100, Group: "Claude and GPT models"},
+		Weekly:   &Window{RemainingPercent: 58, Group: "Gemini Models"},
+	}
+	if got := snapshot.LimitGroup(); got != "Gemini Models" {
+		t.Errorf("limit group = %q", got)
+	}
+	snapshot.Weekly.RemainingPercent = 100
+	if got := snapshot.LimitGroup(); got != "Claude and GPT models" {
+		t.Errorf("tie group = %q", got)
+	}
+}
+
 func TestShortError(t *testing.T) {
 	cases := []struct {
 		err  error

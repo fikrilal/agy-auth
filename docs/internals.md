@@ -104,7 +104,7 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 
 `Store.Load` sorts accounts active first, then email ascending, with alias and ID as tiebreaks. This is the order used by `list`, pickers, and numeric queries, so `01` always refers to the same row. Same-email accounts are contiguous: the UI prints a dim email header and indented alias/short-ID children; only the child rows are numbered and selectable.
 
-The non-live table uses `#`, `ACCOUNT`, `EXPIRES`, `METHOD`, and `LAST` columns. When at least one row has plan or quota data, it adds `PLAN`, `5H`, and `WEEKLY` between `ACCOUNT` and `EXPIRES`; the remaining columns shift down in priority. The table fits the terminal width by truncating the account label and dropping lower-priority columns on narrow terminals. Cached quota values kept after a failed refresh are marked with `*`.
+The non-live table uses `#`, `ACCOUNT`, `EXPIRES`, `METHOD`, and `LAST` columns. When at least one row has plan or quota data, it adds `PLAN`, `5H`, `WEEKLY`, and `GROUP` between `ACCOUNT` and `EXPIRES`; the remaining columns shift down in priority. `GROUP` names the group that owns the lower of the displayed `5H`/`WEEKLY` values. The table fits the terminal width by truncating the account label and dropping lower-priority columns on narrow terminals. Cached quota values kept after a failed refresh are marked with `*`.
 
 ## Usage and quota
 

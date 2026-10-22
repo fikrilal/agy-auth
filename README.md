@@ -169,7 +169,7 @@ Before replacing or deleting the live credential, `agy-auth` snapshots the curre
 
 Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
 
-Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns.
+Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns. The `GROUP` column identifies which quota group owns the lower of the displayed `5H`/`WEEKLY` values; `agy-auth usage` shows every group explicitly.
 
 `list --live`, `switch --live`, and `remove --live` open an interactive view with a 1 Hz repaint and a configurable 5–3600 second credential/registry/quota refresh (default 60). `switch --live` switches on Enter and stays open; `remove --live` uses Space to check rows and Enter to remove them. `switch --live` also auto-switches when any fresh named quota group (Gemini, Claude/GPT, or a tier-specific group) is at 0%, choosing the healthy stored account with the earliest reset. If group data is unavailable, it falls back to the shared summary and model detail. `--live` requires a terminal and cannot be combined with `--json`.
 
@@ -273,7 +273,7 @@ Usage and operation errors use the same envelope:
 
 `command` is always the canonical command name, even when an alias is used.
 
-`plan` and `usage` are omitted when quota data is unavailable. `usage_error` carries a short stable code (`missing_auth`, `auth`, `forbidden`, `unsupported`, `timeout`, `network`, `invalid_response`, `refresh_failed`, or `http_<status>`); `usage.stale: true` marks cached values retained after a failed refresh.
+`plan` and `usage` are omitted when quota data is unavailable. `usage_error` carries a short stable code (`missing_auth`, `auth`, `forbidden`, `unsupported`, `timeout`, `network`, `invalid_response`, `refresh_failed`, or `http_<status>`); `usage.stale: true` marks cached values retained after a failed refresh. Each `five_hour`/`weekly` window may include a `group` field naming the quota group that supplied the limiting value.
 
 `usage --json` returns `account`, `email`, `updated_at`, and a `groups` array. Each group has a `name`, `description`, and `buckets`; each bucket has `id`, `name`, `window` (`5h`/`weekly`), `remaining_fraction`, `remaining_percent`, and `reset_time`. `usage --all --json` returns an `accounts` array with the same group data plus `usage_error`. `config live --json` returns `live_interval_seconds`.
 

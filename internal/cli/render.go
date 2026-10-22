@@ -172,7 +172,7 @@ func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, inde
 	}
 	cells := []string{number, marker, account}
 	if withUsage {
-		cells = append(cells, a.planCell(row), a.usageCell(row, false), a.usageCell(row, true))
+		cells = append(cells, a.planCell(row), a.usageCell(row, false), a.usageCell(row, true), a.limitGroupCell(row))
 	}
 	method := row.AuthMethod
 	if method == "" {
@@ -200,6 +200,16 @@ func (a *App) planCell(row accountRow) string {
 		return "-"
 	}
 	return row.Plan
+}
+
+func (a *App) limitGroupCell(row accountRow) string {
+	if row.Usage == nil {
+		return "-"
+	}
+	if group := row.Usage.LimitGroup(); group != "" {
+		return group
+	}
+	return "-"
 }
 
 func (a *App) usageCell(row accountRow, weekly bool) string {
