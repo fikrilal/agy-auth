@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/usage"
 )
 
 func (a *App) emitJSON(data any) error {
@@ -42,18 +45,23 @@ func (a *App) commandName() string {
 }
 
 type accountRow struct {
-	Number     int        `json:"number"`
-	ID         string     `json:"id,omitempty"`
-	Active     bool       `json:"active"`
-	Stored     bool       `json:"stored"`
-	Email      string     `json:"email,omitempty"`
-	Alias      string     `json:"alias,omitempty"`
-	AuthMethod string     `json:"auth_method,omitempty"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	Expired    bool       `json:"expired"`
-	AddedAt    *time.Time `json:"added_at,omitempty"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	Source     string     `json:"source,omitempty"`
+	Number     int             `json:"number"`
+	ID         string          `json:"id,omitempty"`
+	Active     bool            `json:"active"`
+	Stored     bool            `json:"stored"`
+	Email      string          `json:"email,omitempty"`
+	Alias      string          `json:"alias,omitempty"`
+	AuthMethod string          `json:"auth_method,omitempty"`
+	ExpiresAt  *time.Time      `json:"expires_at,omitempty"`
+	Expired    bool            `json:"expired"`
+	AddedAt    *time.Time      `json:"added_at,omitempty"`
+	LastUsedAt *time.Time      `json:"last_used_at,omitempty"`
+	Source     string          `json:"source,omitempty"`
+	Plan       string          `json:"plan,omitempty"`
+	Usage      *usage.Snapshot `json:"usage,omitempty"`
+	UsageError string          `json:"usage_error,omitempty"`
+
+	token *agy.TokenFile
 }
 
 func (r accountRow) displayName() string {
@@ -118,6 +126,7 @@ func (a *App) renderAccountRows(rows []accountRow, now time.Time) {
 
 func (a *App) renderAccountTable(rows []accountRow, now time.Time, highlight int, newline string) {
 	width := a.tableWidth()
+	columns, withUsage := accountTableLayout(rows)
 	displayRows := groupDisplayRows(rows)
 	tableRows := make([]tableRow, 0, len(displayRows))
 	for _, display := range displayRows {
@@ -129,14 +138,14 @@ func (a *App) renderAccountTable(rows []accountRow, now time.Time, highlight int
 			tableRows = append(tableRows, tableRow{Group: a.dim(header)})
 			continue
 		}
-		tableRow := a.accountTableRow(*display.Row, now, nil, display.Indent)
+		tableRow := a.accountTableRow(*display.Row, now, nil, display.Indent, withUsage)
 		tableRow.Highlight = display.Index == highlight
 		tableRows = append(tableRows, tableRow)
 	}
-	a.renderTable(a.Out, width, accountTableColumns, tableRows, newline)
+	a.renderTable(a.Out, width, columns, tableRows, newline)
 }
 
-func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, indent bool) tableRow {
+func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, indent, withUsage bool) tableRow {
 	number := "-"
 	if row.Number > 0 {
 		number = fmt.Sprintf("%02d", row.Number)
@@ -159,6 +168,10 @@ func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, inde
 	if !row.Stored {
 		account += " (not stored)"
 	}
+	cells := []string{number, marker, account}
+	if withUsage {
+		cells = append(cells, a.planCell(row), a.usageCell(row, false), a.usageCell(row, true))
+	}
 	method := row.AuthMethod
 	if method == "" {
 		method = "-"
@@ -176,7 +189,48 @@ func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, inde
 	if row.LastUsedAt != nil {
 		last = row.LastUsedAt.Format("2006-01-02")
 	}
-	return tableRow{Cells: []string{number, marker, account, expiry, method, last}}
+	cells = append(cells, expiry, method, last)
+	return tableRow{Cells: cells}
+}
+
+func (a *App) planCell(row accountRow) string {
+	if row.Plan == "" {
+		return "-"
+	}
+	return row.Plan
+}
+
+func (a *App) usageCell(row accountRow, weekly bool) string {
+	snapshot := row.Usage
+	if snapshot == nil {
+		return "-"
+	}
+	window := snapshot.FiveHour
+	if weekly {
+		window = snapshot.Weekly
+	}
+	if window == nil {
+		return "-"
+	}
+	percent := window.RemainingPercent
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	value := fmt.Sprintf("%d%%", percent)
+	if snapshot.Stale {
+		value += "*"
+	}
+	switch {
+	case percent <= 20:
+		return a.red(value)
+	case percent <= 50:
+		return a.yellow(value)
+	default:
+		return a.green(value)
+	}
 }
 
 // visibleWidth approximates terminal width for the small set of styled cells

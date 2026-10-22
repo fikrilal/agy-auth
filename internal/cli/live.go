@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/usage"
 	"golang.org/x/term"
 )
 
@@ -56,18 +57,19 @@ func (m liveMode) help() string {
 }
 
 type liveState struct {
-	rows        []accountRow
-	selectedID  string
-	checked     map[string]bool
-	offset      int
-	action      string
-	source      string
-	refreshErr  string
-	refreshing  bool
-	lastRefresh time.Time
-	nextRefresh time.Time
-	interval    time.Duration
-	gen         int
+	rows         []accountRow
+	selectedID   string
+	checked      map[string]bool
+	offset       int
+	action       string
+	source       string
+	refreshErr   string
+	refreshing   bool
+	lastRefresh  time.Time
+	nextRefresh  time.Time
+	interval     time.Duration
+	gen          int
+	autoSwitched bool
 }
 
 type liveRefreshResult struct {
@@ -249,10 +251,23 @@ func (s *liveState) statusLine(now time.Time) string {
 	if s.refreshErr != "" {
 		line += " | Error: " + s.refreshErr
 	}
+	if failures := s.quotaErrors(); failures > 0 {
+		line += fmt.Sprintf(" | Quota errors: %d", failures)
+	}
 	return line
 }
 
-func (a *App) loadLiveRows(mode liveMode) ([]accountRow, string, error) {
+func (s *liveState) quotaErrors() int {
+	count := 0
+	for i := range s.rows {
+		if s.rows[i].UsageError != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func (a *App) loadLiveRows(mode liveMode, withUsage bool) ([]accountRow, string, error) {
 	reg, err := a.Store.Load()
 	if err != nil {
 		return nil, "", err
@@ -280,6 +295,7 @@ func (a *App) loadLiveRows(mode liveMode) ([]accountRow, string, error) {
 				Email:      tf.Email(),
 				AuthMethod: tf.AuthMethod,
 				Source:     source,
+				token:      tf,
 			}
 			if expiry, ok := tf.ExpiryTime(); ok {
 				value := expiry
@@ -289,7 +305,113 @@ func (a *App) loadLiveRows(mode liveMode) ([]accountRow, string, error) {
 			rows = append([]accountRow{row}, rows...)
 		}
 	}
+	if withUsage {
+		a.enrichUsage(rows)
+	}
 	return rows, source, nil
+}
+
+func (s *liveState) setActive(id string) {
+	for i := range s.rows {
+		s.rows[i].Active = s.rows[i].ID == id
+	}
+}
+
+func (s *liveState) activeRow() *accountRow {
+	for i := range s.rows {
+		if s.rows[i].Active {
+			return &s.rows[i]
+		}
+	}
+	return nil
+}
+
+func (a *App) maybeAutoSwitch(state *liveState, mode liveMode) string {
+	if mode != liveModeSwitch || state.autoSwitched {
+		return ""
+	}
+	active := state.activeRow()
+	if active == nil || active.ID == "" || active.Usage == nil || active.Usage.Stale || !quotaExhausted(active) {
+		return ""
+	}
+	state.autoSwitched = true
+	candidate := autoSwitchCandidate(state.rows)
+	if candidate == nil {
+		return "Active account is out of quota; no available account."
+	}
+	action := a.liveSwitch(candidate.ID, candidate.displayName())
+	if strings.HasPrefix(action, "Switched to") {
+		state.setActive(candidate.ID)
+		return fmt.Sprintf("Auto-switched to %s (quota exhausted).", candidate.displayName())
+	}
+	return action
+}
+
+func autoSwitchCandidate(rows []accountRow) *accountRow {
+	var active *accountRow
+	for i := range rows {
+		if rows[i].Active {
+			active = &rows[i]
+			break
+		}
+	}
+	if active == nil || active.ID == "" || active.Usage == nil || active.Usage.Stale || !quotaExhausted(active) {
+		return nil
+	}
+
+	var best *accountRow
+	var bestReset time.Time
+	for i := range rows {
+		row := &rows[i]
+		if row.ID == "" || row.ID == active.ID || row.Usage == nil || row.Usage.Stale || !quotaAvailable(row) {
+			continue
+		}
+		reset := quotaNextReset(row)
+		if best == nil || (!reset.IsZero() && (bestReset.IsZero() || reset.Before(bestReset))) {
+			best = row
+			bestReset = reset
+		}
+	}
+	return best
+}
+
+func quotaExhausted(row *accountRow) bool {
+	if row == nil || row.Usage == nil {
+		return false
+	}
+	if row.Usage.FiveHour != nil && row.Usage.FiveHour.RemainingPercent <= 0 {
+		return true
+	}
+	return row.Usage.Weekly != nil && row.Usage.Weekly.RemainingPercent <= 0
+}
+
+func quotaAvailable(row *accountRow) bool {
+	if row == nil || row.Usage == nil {
+		return false
+	}
+	if row.Usage.FiveHour == nil && row.Usage.Weekly == nil {
+		return false
+	}
+	if row.Usage.FiveHour != nil && row.Usage.FiveHour.RemainingPercent <= 0 {
+		return false
+	}
+	return row.Usage.Weekly == nil || row.Usage.Weekly.RemainingPercent > 0
+}
+
+func quotaNextReset(row *accountRow) time.Time {
+	if row == nil || row.Usage == nil {
+		return time.Time{}
+	}
+	var next time.Time
+	for _, window := range []*usage.Window{row.Usage.FiveHour, row.Usage.Weekly} {
+		if window == nil || window.ResetsAt == nil {
+			continue
+		}
+		if next.IsZero() || window.ResetsAt.Before(next) {
+			next = *window.ResetsAt
+		}
+	}
+	return next
 }
 
 func (a *App) runLive(mode liveMode, logout bool) int {
@@ -311,7 +433,7 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 	defer fmt.Fprint(a.Out, "\x1b[?25h\x1b[?1049l")
 
 	state := &liveState{checked: map[string]bool{}, interval: liveDefaultInterval}
-	rows, source, loadErr := a.loadLiveRows(mode)
+	rows, source, loadErr := a.loadLiveRows(mode, false)
 	state.apply(rows, source, loadErr, a.now(), state.interval)
 	state.gen = 1
 
@@ -325,13 +447,14 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 		state.refreshing = true
 		gen := state.gen
 		go func() {
-			rows, source, err := a.loadLiveRows(mode)
+			rows, source, err := a.loadLiveRows(mode, true)
 			refreshCh <- liveRefreshResult{gen: gen, rows: rows, source: source, err: err}
 		}()
 	}
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	startRefresh()
 	a.renderLiveFrame(state, mode)
 
 	for {
@@ -353,6 +476,13 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 		case result := <-refreshCh:
 			if result.gen == state.gen {
 				state.apply(result.rows, result.source, result.err, a.now(), state.interval)
+				if action := a.maybeAutoSwitch(state, mode); action != "" {
+					state.action = action
+					if strings.HasPrefix(action, "Auto-switched") {
+						state.gen++
+						startRefresh()
+					}
+				}
 			}
 			a.renderLiveFrame(state, mode)
 		case now := <-ticker.C:
@@ -435,7 +565,12 @@ func (a *App) handleLiveKey(state *liveState, key []byte, mode liveMode, logout 
 		switch mode {
 		case liveModeSwitch:
 			if row := state.selectedRow(); row != nil {
-				state.action = a.liveSwitch(row.ID, row.displayName())
+				action := a.liveSwitch(row.ID, row.displayName())
+				state.action = action
+				if strings.HasPrefix(action, "Switched to") {
+					state.autoSwitched = true
+					state.setActive(row.ID)
+				}
 				return false, true
 			}
 		case liveModeRemove:
@@ -497,6 +632,7 @@ func (a *App) renderLiveFrame(state *liveState, mode liveMode) {
 	} else {
 		start, end := state.viewport(a.tableHeight())
 		selected := state.selectedIndex()
+		columns, withUsage := accountTableLayout(state.rows)
 		allRows := make([]tableRow, len(state.rows))
 		for i, row := range state.rows {
 			var checked *bool
@@ -504,13 +640,13 @@ func (a *App) renderLiveFrame(state *liveState, mode liveMode) {
 				value := state.checked[row.ID]
 				checked = &value
 			}
-			allRows[i] = a.accountTableRow(row, now, checked, false)
+			allRows[i] = a.accountTableRow(row, now, checked, false, withUsage)
 		}
 		visible := append([]tableRow(nil), allRows[start:end]...)
 		for i := range visible {
 			visible[i].Highlight = start+i == selected
 		}
-		a.renderTableRows(a.Out, width, accountTableColumns, allRows, visible, "\r\n")
+		a.renderTableRows(a.Out, width, columns, allRows, visible, "\r\n")
 	}
 	fmt.Fprintf(a.Out, "%s\r\n", truncatePlain(state.statusLine(now), width))
 	if mode != liveModeList {

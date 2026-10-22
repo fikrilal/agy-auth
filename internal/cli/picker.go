@@ -58,6 +58,7 @@ func (a *App) pickerRows(accounts []registry.Account, activeID string, numbers m
 		}
 		if raw, err := a.Store.LoadToken(account.ID); err == nil {
 			if tf, err := agy.ParseTokenFile(raw); err == nil {
+				row.token = tf
 				if expiry, ok := tf.ExpiryTime(); ok {
 					value := expiry
 					row.ExpiresAt = &value

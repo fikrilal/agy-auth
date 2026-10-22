@@ -11,7 +11,8 @@ cmd/harness/           repository harness entrypoint
 internal/cli/          commands, rendering, picker, App IO
 internal/agy/          credential JSON, keyring/file backend
 internal/registry/     account snapshots, metadata, queries
-internal/oauth/        PKCE login, client discovery
+internal/oauth/        PKCE login, token refresh, client discovery
+internal/usage/        plan/quota provider, request parsing, TTL cache
 internal/backup/       timestamped credential/registry backups
 
 npm/bin/               Node shim for prebuilt binaries
@@ -23,9 +24,10 @@ docs/                  guides, plans, ADRs, internals
 ## Import direction
 
 ```text
-cmd/agy-auth -> internal/cli -> internal/{agy,registry,oauth,backup}
+cmd/agy-auth -> internal/cli -> internal/{agy,registry,oauth,usage,backup}
 internal/registry -> internal/{agy,backup}
 internal/oauth    -> internal/agy
+internal/usage    -> internal/{agy,oauth}
 internal/agy      -> internal/backup + standard library + go-keyring
 internal/backup   -> standard library
 internal/harness  -> internal/{agy,registry} (dev tool only)
@@ -58,7 +60,7 @@ See [Internals](../internals.md) for the full document shapes, registry schema, 
 
 `internal/cli/app.go` owns command dispatch, global flags, and the `App` writers. `cmd/agy-auth/main.go` only wires standard streams and exits. Library packages return errors; only `App` renders user-facing output.
 
-The picker and rendering live in `internal/cli/picker.go`, `table.go`, `render.go`, and `util.go`. `live.go` owns the raw-mode live views, refresh/generation state, and switch/remove actions. Account rows are ordered by `registry.SortAccounts` during load (active first, then email), and both list and picker share the same 1-based numbers. The width-aware table truncates the account column and drops lower-priority columns; keep future TUI work on the same row model and selection by account ID.
+The picker and rendering live in `internal/cli/picker.go`, `table.go`, `render.go`, and `util.go`. `usage.go` enriches rows from `internal/usage` with bounded concurrency; `live.go` owns the raw-mode live views, refresh/generation state, quota-aware auto-switch, and switch/remove actions. Account rows are ordered by `registry.SortAccounts` during load (active first, then email), and both list and picker share the same 1-based numbers. The width-aware table truncates the account column and drops lower-priority columns; keep future TUI work on the same row model and selection by account ID.
 
 ## Packaging
 

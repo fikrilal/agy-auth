@@ -13,6 +13,7 @@ func (a *App) cmdList(args []string) int {
 	fs := a.newFlagSet("list")
 	activeOnly := fs.Bool("active", false, "only show the active account")
 	noSync := fs.Bool("no-sync", false, "do not refresh the stored snapshot of the live account")
+	noUsage := fs.Bool("no-usage", false, "do not look up plan and quota")
 	live := fs.Bool("live", false, "interactive live view")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
@@ -81,6 +82,7 @@ func (a *App) cmdList(args []string) int {
 		}
 		if raw, err := a.Store.LoadToken(account.ID); err == nil {
 			if tf, err := agy.ParseTokenFile(raw); err == nil {
+				row.token = tf
 				if expiry, ok := tf.ExpiryTime(); ok {
 					value := expiry
 					row.ExpiresAt = &value
@@ -120,6 +122,7 @@ func (a *App) cmdList(args []string) int {
 				Email:      current.Email(),
 				AuthMethod: current.AuthMethod,
 				Source:     string(currentSource),
+				token:      current,
 			}
 			if expiry, ok := current.ExpiryTime(); ok {
 				value := expiry
@@ -127,6 +130,33 @@ func (a *App) cmdList(args []string) int {
 				row.Expired = !expiry.After(now)
 			}
 			currentRow = &row
+		}
+	}
+
+	if !*noUsage {
+		failures := map[string]int{}
+		for code, count := range a.enrichUsage(storedRows) {
+			failures[code] += count
+		}
+		if currentRow != nil {
+			enriched := false
+			for i := range storedRows {
+				if storedRows[i].ID == currentRow.ID {
+					*currentRow = storedRows[i]
+					enriched = true
+					break
+				}
+			}
+			if !enriched {
+				single := []accountRow{*currentRow}
+				for code, count := range a.enrichUsage(single) {
+					failures[code] += count
+				}
+				*currentRow = single[0]
+			}
+		}
+		if !a.JSON {
+			a.warnUsageFailures(failures)
 		}
 	}
 

@@ -24,13 +24,34 @@ type tableRow struct {
 	Highlight bool
 }
 
-var accountTableColumns = []tableColumn{
-	{Header: "#", Min: 2, Max: 2, Priority: 0, Right: true, Required: true},
-	{Header: "", Min: 1, Max: 1, Priority: 0, Required: true},
-	{Header: "ACCOUNT", Min: 12, Max: 48, Priority: 1, Required: true},
-	{Header: "EXPIRES", Min: 7, Max: 14, Priority: 2},
-	{Header: "METHOD", Min: 6, Max: 10, Priority: 3},
-	{Header: "LAST", Min: 10, Max: 10, Priority: 4},
+func accountTableLayout(rows []accountRow) ([]tableColumn, bool) {
+	base := []tableColumn{
+		{Header: "#", Min: 2, Max: 2, Priority: 0, Right: true, Required: true},
+		{Header: "", Min: 1, Max: 1, Priority: 0, Required: true},
+		{Header: "ACCOUNT", Min: 12, Max: 48, Priority: 1, Required: true},
+	}
+	status := []tableColumn{
+		{Header: "EXPIRES", Min: 7, Max: 14, Priority: 2},
+		{Header: "METHOD", Min: 6, Max: 10, Priority: 3},
+		{Header: "LAST", Min: 10, Max: 10, Priority: 4},
+	}
+	for _, row := range rows {
+		if row.Plan == "" && row.Usage == nil {
+			continue
+		}
+		columns := append([]tableColumn{}, base...)
+		columns = append(columns,
+			tableColumn{Header: "PLAN", Min: 4, Max: 8, Priority: 2},
+			tableColumn{Header: "5H", Min: 4, Max: 5, Priority: 3, Right: true},
+			tableColumn{Header: "WEEKLY", Min: 6, Max: 10, Priority: 4, Right: true},
+		)
+		for _, column := range status {
+			column.Priority += 3
+			columns = append(columns, column)
+		}
+		return columns, true
+	}
+	return append(base, status...), false
 }
 
 func (a *App) tableWidth() int {

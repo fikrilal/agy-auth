@@ -173,6 +173,55 @@ func TestExchangeError(t *testing.T) {
 	}
 }
 
+func TestRefresh(t *testing.T) {
+	setTestClient(t)
+	var received url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := request.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		received = request.PostForm
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"access_token": "new-access-token",
+			"expires_in":   3600,
+			"token_type":   "Bearer",
+		})
+	}))
+	defer server.Close()
+
+	oldEndpoint, oldClient := TokenEndpoint, HTTPClient
+	TokenEndpoint = server.URL
+	HTTPClient = server.Client()
+	defer func() {
+		TokenEndpoint = oldEndpoint
+		HTTPClient = oldClient
+	}()
+
+	response, err := Refresh(context.Background(), "stored-refresh-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.AccessToken != "new-access-token" {
+		t.Errorf("access token = %q", response.AccessToken)
+	}
+	if response.RefreshToken != "stored-refresh-token" {
+		t.Errorf("refresh token was not preserved: %q", response.RefreshToken)
+	}
+	for key, want := range map[string]string{
+		"client_id":     "test-client",
+		"client_secret": "test-secret",
+		"grant_type":    "refresh_token",
+		"refresh_token": "stored-refresh-token",
+	} {
+		if got := received.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if received.Get("code") != "" {
+		t.Errorf("unexpected code parameter: %q", received.Get("code"))
+	}
+}
+
 func TestTokenFromResponse(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	response := &TokenResponse{

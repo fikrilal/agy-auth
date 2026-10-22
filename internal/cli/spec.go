@@ -25,17 +25,19 @@ var commandSpecs = []CommandSpec{
 		Group:    "Account management",
 		Synopsis: "list, ls",
 		Summary:  "List stored accounts and the live agy account",
-		Usage:    []string{"agy-auth list [--active] [--no-sync] [--live]"},
+		Usage:    []string{"agy-auth list [--active] [--no-sync] [--no-usage] [--live]"},
 		Description: "List stored accounts. The live agy credential is marked with *.\n" +
 			"The active account snapshot is refreshed automatically when agy has rotated\n" +
-			"its tokens; pass --no-sync to keep this command read-only. --live opens a\n" +
-			"refreshing interactive view.",
+			"its tokens; pass --no-sync to keep this command read-only. Plan and shared\n" +
+			"5-hour/weekly quota are fetched when available; --no-usage skips that lookup.\n" +
+			"--live opens a refreshing interactive view.",
 		Options: []OptionSpec{
 			{Flag: "--active", Description: "Only show the active account"},
 			{Flag: "--no-sync", Description: "Do not update the stored snapshot of the live account"},
+			{Flag: "--no-usage", Description: "Do not fetch plan and quota data"},
 			{Flag: "--live", Description: "Interactive live view"},
 		},
-		Examples: []string{"agy-auth list", "agy-auth list --active", "agy-auth list --live"},
+		Examples: []string{"agy-auth list", "agy-auth list --active", "agy-auth list --no-usage", "agy-auth list --live"},
 	},
 	{
 		Name:     "add",

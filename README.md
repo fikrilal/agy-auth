@@ -15,14 +15,16 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 - Toggle back to the previous account with `switch -`.
 - Candidate picker for ambiguous queries in a terminal.
 - Width-aware tables with active-first numbering and same-email grouping.
-- Live views for list, switch, and remove with viewport paging and a 60-second refresh.
+- Plan and shared 5-hour/weekly quota columns from the Antigravity Code Assist quota API, with a 60-second cache and non-fatal errors.
+- Live views for list, switch, and remove with viewport paging and a 60-second refresh; `switch --live` can move away from an exhausted active account.
+- Skip quota lookups with `list --no-usage`.
 - Add the account that is currently signed in (`add`).
 - Add another account through Google OAuth with PKCE (`login`) without touching the current credential first.
 - Import and export raw credential JSON.
 - Machine-readable output with `--json`.
 - Timestamped backups before credential and registry changes, with `clean` for retention and orphan cleanup.
 - Uses the same credential storage as `agy`: the OS keyring with a file fallback for headless hosts.
-- No telemetry. Tokens only leave the machine for Google OAuth and, if you use `--via-agy`, agy itself.
+- No telemetry. Tokens only leave the machine for Google OAuth, the Google Code Assist quota API, and, if you use `--via-agy`, agy itself.
 
 ## Install
 
@@ -101,7 +103,7 @@ After switching, restart `agy`. An already-running `agy` process keeps the old c
 
 | Command | Description |
 |---------|-------------|
-| `agy-auth list [--active] [--no-sync] [--live]` | List stored accounts and the live account |
+| `agy-auth list [--active] [--no-sync] [--no-usage] [--live]` | List stored accounts, plan, and quota |
 | `agy-auth add [--alias <alias>]` | Save the account currently signed in to agy |
 | `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
 | `agy-auth switch [<query>|-] [--live]` | Switch interactively, by query, or back to the previous account |
@@ -166,7 +168,9 @@ Queries resolve in this order: row number, exact account ID, exact alias, exact 
 
 Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns.
 
-`list --live`, `switch --live`, and `remove --live` open an interactive view with a 1 Hz repaint and a 60-second credential/registry refresh. `switch --live` switches on Enter and stays open; `remove --live` uses Space to check rows and Enter to remove them. `--live` requires a terminal and cannot be combined with `--json`.
+`list --live`, `switch --live`, and `remove --live` open an interactive view with a 1 Hz repaint and a 60-second credential/registry/quota refresh. `switch --live` switches on Enter and stays open; `remove --live` uses Space to check rows and Enter to remove them. `switch --live` also auto-switches when the active account is at 0% on a fresh 5-hour or weekly window, choosing the healthy stored account with the earliest reset. `--live` requires a terminal and cannot be combined with `--json`.
+
+`list` fetches the current plan and shared quota from the Antigravity Code Assist backend. The quota source uses the project ID cached by agy, an `antigravity` User-Agent, and the account's access token; expired access tokens are refreshed in memory through the same OAuth client used by `login`. Results are cached for 60 seconds. Quota failures are non-fatal: the table shows `-` (or cached values marked `*`) and JSON rows carry `usage_error`. Use `list --no-usage` to skip the lookup.
 
 `remove` resolves and deduplicates every selector before deleting anything. If a later selector fails, no account is removed.
 
@@ -210,7 +214,19 @@ Example (`agy-auth list --json`):
         "auth_method": "consumer",
         "expires_at": "2026-10-20T23:02:46.46381726+07:00",
         "expired": false,
-        "added_at": "2026-10-20T15:58:44Z"
+        "added_at": "2026-10-20T15:58:44Z",
+        "plan": "Pro",
+        "usage": {
+          "five_hour": {
+            "remaining_percent": 75,
+            "resets_at": "2026-10-22T18:25:48Z"
+          },
+          "weekly": {
+            "remaining_percent": 50,
+            "resets_at": "2026-10-29T13:25:48Z"
+          },
+          "updated_at": "2026-10-22T13:25:47Z"
+        }
       }
     ],
     "current": {
@@ -218,7 +234,19 @@ Example (`agy-auth list --json`):
       "id": "acct_cb5897f277",
       "active": true,
       "stored": true,
-      "email": "user@example.com"
+      "email": "user@example.com",
+      "plan": "Pro",
+      "usage": {
+        "five_hour": {
+          "remaining_percent": 75,
+          "resets_at": "2026-10-22T18:25:48Z"
+        },
+        "weekly": {
+          "remaining_percent": 50,
+          "resets_at": "2026-10-29T13:25:48Z"
+        },
+        "updated_at": "2026-10-22T13:25:47Z"
+      }
     }
   }
 }
@@ -239,6 +267,8 @@ Usage and operation errors use the same envelope:
 ```
 
 `command` is always the canonical command name, even when an alias is used.
+
+`plan` and `usage` are omitted when quota data is unavailable. `usage_error` carries a short stable code (`missing_auth`, `auth`, `forbidden`, `unsupported`, `timeout`, `network`, `invalid_response`, `refresh_failed`, or `http_<status>`); `usage.stale: true` marks cached values retained after a failed refresh.
 
 Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `backup_error`, `registry_error`, `state_uncertain`, `oauth_error`, `import_failed`, `invalid_credential`, `export_failed`, `clean_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
 
@@ -265,12 +295,13 @@ Usage errors print `error:`, the command's `Usage:` block, and a `hint:` on stde
 | `AGY_AUTH_AGY_TOKEN_FILE` | Override the agy fallback token path |
 | `AGY_AUTH_CLIENT_ID` | Override the OAuth client ID |
 | `AGY_AUTH_CLIENT_SECRET` | Override the OAuth client secret |
+| `AGY_AUTH_PROJECT_ID` | Override the Code Assist project ID used for quota lookups |
 
 ## Limitations
 
 - **Restart agy after switching.** Existing sessions do not pick up the new credential.
 - `agy-auth` is unofficial and can break when Antigravity changes its credential format or OAuth client.
-- Usage/quota display is not implemented. The quota endpoints require additional account context that is not reliably reproducible from the stored credential.
+- Plan and quota display depends on an undocumented Code Assist endpoint. If the endpoint or project context changes, usage is reported as unavailable instead of failing the command; `--no-usage` skips the lookup entirely.
 - The direct OAuth flow targets personal Google accounts (`auth_method: consumer`). For enterprise or custom sign-in flows, sign in with `agy` first and use `agy-auth add`.
 - Account snapshots are protected with `0600` file permissions. The keyring is protected by your OS login keyring.
 - On Linux, a locked or unresponsive keyring falls back to the file mirror after a short timeout.

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/fikrilal/agy-auth/internal/backup"
 	"github.com/fikrilal/agy-auth/internal/oauth"
 	"github.com/fikrilal/agy-auth/internal/registry"
+	"github.com/fikrilal/agy-auth/internal/usage"
 )
 
 var testNow = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
@@ -1869,6 +1872,269 @@ func TestListActiveWithoutLiveCredential(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "No active account") {
 		t.Errorf("output = %q", out.String())
+	}
+}
+
+type testUsageProvider struct {
+	mu       sync.Mutex
+	snapshot usage.Snapshot
+	err      error
+	calls    int
+}
+
+func (p *testUsageProvider) Fetch(context.Context, string, *agy.TokenFile) (usage.Snapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	return p.snapshot, p.err
+}
+
+func (p *testUsageProvider) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+func usageSnapshot() usage.Snapshot {
+	fiveReset := testNow.Add(2 * time.Hour)
+	weeklyReset := testNow.Add(6 * 24 * time.Hour)
+	return usage.Snapshot{
+		Plan:      "Pro",
+		FiveHour:  &usage.Window{RemainingPercent: 75, ResetsAt: &fiveReset},
+		Weekly:    &usage.Window{RemainingPercent: 50, ResetsAt: &weeklyReset},
+		UpdatedAt: testNow,
+	}
+}
+
+func TestListUsageColumnsAndJSON(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	app, out, errOut := env.app("")
+	app.Width = 120
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
+	if code := app.Run([]string{"list", "--no-sync"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	for _, want := range []string{"PLAN", "5H", "WEEKLY", "Pro", "75%", "50%"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("list output missing %q: %q", want, out.String())
+		}
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+
+	app, out, errOut = env.app("")
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
+	if code := app.Run([]string{"list", "--no-sync", "--json"}); code != 0 {
+		t.Fatalf("list json exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var payload struct {
+		Accounts []accountRow `json:"accounts"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Accounts) != 1 {
+		t.Fatalf("accounts = %d", len(payload.Accounts))
+	}
+	row := payload.Accounts[0]
+	if row.Plan != "Pro" || row.Usage == nil || row.Usage.FiveHour == nil || row.Usage.Weekly == nil {
+		t.Fatalf("usage row = %+v", row)
+	}
+	if row.Usage.FiveHour.RemainingPercent != 75 || row.Usage.Weekly.RemainingPercent != 50 {
+		t.Errorf("usage = %+v", row.Usage)
+	}
+	if row.UsageError != "" {
+		t.Errorf("usage error = %q", row.UsageError)
+	}
+}
+
+func TestListNoUsageSkipsProvider(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	provider := &testUsageProvider{snapshot: usageSnapshot()}
+	app, out, errOut := env.app("")
+	app.Width = 120
+	app.Usage = provider
+	if code := app.Run([]string{"list", "--no-sync", "--no-usage"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	if provider.callCount() != 0 {
+		t.Errorf("provider calls = %d", provider.callCount())
+	}
+	if strings.Contains(out.String(), "PLAN") {
+		t.Errorf("no-usage output has plan column: %q", out.String())
+	}
+}
+
+func TestListUsageFailureIsNonFatal(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	snapshot := usage.Snapshot{Plan: "Pro"}
+	app, out, errOut := env.app("")
+	app.Usage = &testUsageProvider{snapshot: snapshot, err: usage.ErrForbidden}
+	if code := app.Run([]string{"list", "--no-sync"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "PLAN") || !strings.Contains(out.String(), "Pro") {
+		t.Errorf("list output = %q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "quota lookup failed") || !strings.Contains(errOut.String(), "forbidden") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+
+	app, out, _ = env.app("")
+	app.Usage = &testUsageProvider{snapshot: snapshot, err: usage.ErrForbidden}
+	if code := app.Run([]string{"list", "--no-sync", "--json"}); code != 0 {
+		t.Fatalf("list json exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var payload struct {
+		Accounts []accountRow `json:"accounts"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Accounts) != 1 || payload.Accounts[0].UsageError != "forbidden" {
+		t.Errorf("accounts = %+v", payload.Accounts)
+	}
+}
+
+func TestRenderAccountTableUsageWidth(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.Width = 80
+	snapshot := usageSnapshot()
+	rows := []accountRow{
+		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "user@example.com", Plan: "Pro", Usage: &snapshot},
+	}
+	app.renderAccountRows(rows, testNow)
+	for _, want := range []string{"PLAN", "5H", "WEEKLY", "75%", "50%"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("table missing %q: %q", want, out.String())
+		}
+	}
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if visibleWidth(line) > app.Width {
+			t.Errorf("line exceeds width: %q (%d)", line, visibleWidth(line))
+		}
+	}
+
+	out.Reset()
+	app.Width = 40
+	app.renderAccountRows(rows, testNow)
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if visibleWidth(line) > app.Width {
+			t.Errorf("narrow line exceeds width: %q (%d)", line, visibleWidth(line))
+		}
+	}
+}
+
+func TestAutoSwitchCandidate(t *testing.T) {
+	fiveResetSoon := testNow.Add(time.Hour)
+	fiveResetLater := testNow.Add(2 * time.Hour)
+	weeklyReset := testNow.Add(6 * 24 * time.Hour)
+	active := accountRow{
+		ID:     "acct_active",
+		Active: true,
+		Usage: &usage.Snapshot{
+			FiveHour: &usage.Window{RemainingPercent: 0, ResetsAt: &fiveResetSoon},
+			Weekly:   &usage.Window{RemainingPercent: 80, ResetsAt: &weeklyReset},
+		},
+	}
+	later := accountRow{
+		ID: "acct_later",
+		Usage: &usage.Snapshot{
+			FiveHour: &usage.Window{RemainingPercent: 100, ResetsAt: &fiveResetLater},
+			Weekly:   &usage.Window{RemainingPercent: 100, ResetsAt: &weeklyReset},
+		},
+	}
+	sooner := accountRow{
+		ID: "acct_sooner",
+		Usage: &usage.Snapshot{
+			FiveHour: &usage.Window{RemainingPercent: 90, ResetsAt: &fiveResetSoon},
+			Weekly:   &usage.Window{RemainingPercent: 90, ResetsAt: &weeklyReset},
+		},
+	}
+	candidate := autoSwitchCandidate([]accountRow{active, later, sooner})
+	if candidate == nil || candidate.ID != "acct_sooner" {
+		t.Fatalf("candidate = %+v", candidate)
+	}
+
+	active.Usage.FiveHour.RemainingPercent = 50
+	if candidate := autoSwitchCandidate([]accountRow{active, later, sooner}); candidate != nil {
+		t.Errorf("unexpected candidate for healthy active: %+v", candidate)
+	}
+	active.Usage.FiveHour.RemainingPercent = 0
+	active.Usage.Stale = true
+	if candidate := autoSwitchCandidate([]accountRow{active, later, sooner}); candidate != nil {
+		t.Errorf("unexpected candidate for stale active: %+v", candidate)
+	}
+	active.Usage.Stale = false
+	sooner.Usage.Weekly.RemainingPercent = 0
+	if candidate := autoSwitchCandidate([]accountRow{active, later, sooner}); candidate == nil || candidate.ID != "acct_later" {
+		t.Errorf("exhausted candidate was selected: %+v", candidate)
+	}
+}
+
+func TestMaybeAutoSwitch(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+	store := registry.NewStore(env.storeDir)
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := reg.Resolve("first")
+	second := reg.Resolve("second")
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatalf("resolution first=%v second=%v", first, second)
+	}
+	reset := testNow.Add(time.Hour)
+	state := &liveState{rows: []accountRow{
+		{ID: first[0].ID, Active: true, Usage: &usage.Snapshot{
+			FiveHour: &usage.Window{RemainingPercent: 0, ResetsAt: &reset},
+			Weekly:   &usage.Window{RemainingPercent: 50, ResetsAt: &reset},
+		}},
+		{ID: second[0].ID, Usage: &usage.Snapshot{
+			FiveHour: &usage.Window{RemainingPercent: 100, ResetsAt: &reset},
+			Weekly:   &usage.Window{RemainingPercent: 100, ResetsAt: &reset},
+		}},
+	}}
+	action := app.maybeAutoSwitch(state, liveModeSwitch)
+	if !strings.Contains(action, "Auto-switched to") {
+		t.Fatalf("action = %q", action)
+	}
+	if !state.autoSwitched || state.activeRow() == nil || state.activeRow().ID != second[0].ID {
+		t.Errorf("state after auto-switch = %+v", state)
+	}
+	reg, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Active != second[0].ID {
+		t.Errorf("registry active = %q, want %q", reg.Active, second[0].ID)
+	}
+	if action := app.maybeAutoSwitch(state, liveModeSwitch); action != "" {
+		t.Errorf("second auto-switch = %q", action)
 	}
 }
 

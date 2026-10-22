@@ -99,13 +99,38 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 
 `Store.Load` sorts accounts active first, then email ascending, with alias and ID as tiebreaks. This is the order used by `list`, pickers, and numeric queries, so `01` always refers to the same row. Same-email accounts are contiguous: the UI prints a dim email header and indented alias/short-ID children; only the child rows are numbered and selectable.
 
-The non-live table uses `#`, `ACCOUNT`, `EXPIRES`, `METHOD`, and `LAST` columns. It fits the terminal width by truncating the account label and dropping lower-priority columns on narrow terminals. Plan and usage columns are deferred until the quota source is reliable.
+The non-live table uses `#`, `ACCOUNT`, `EXPIRES`, `METHOD`, and `LAST` columns. When at least one row has plan or quota data, it adds `PLAN`, `5H`, and `WEEKLY` between `ACCOUNT` and `EXPIRES`; the remaining columns shift down in priority. The table fits the terminal width by truncating the account label and dropping lower-priority columns on narrow terminals. Cached quota values kept after a failed refresh are marked with `*`.
+
+## Usage and quota
+
+`internal/usage` reads plan and shared quota from the Code Assist backend:
+
+- `POST https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`
+- `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
+
+Both requests send the account access token and a project ID. The summary response supplies the shared `5h` and `weekly` buckets; when multiple groups exist, the lowest remaining fraction for each window wins. Per-model buckets from `retrieveUserQuota` are not used for the account columns.
+
+The backend expects an `antigravity*` User-Agent. A generic client receives an empty `loadCodeAssist` response and `403 PERMISSION_DENIED` from the quota summary, so `usage.DefaultUserAgent` uses `antigravity/agy-auth/<version> (<os>; <arch>)`.
+
+Project lookup order:
+
+1. `AGY_AUTH_PROJECT_ID`
+2. `ANTIGRAVITY_PROJECT_ID`
+3. `GEMINI_DEFAULT_PROJECT`
+4. `~/.gemini/antigravity-cli/cache/default_project_id.txt`
+5. `default-cli-project`
+
+Plan labels use `paidTier` first, then `currentTier`: `free-tier` → Free, `standard-tier` → Standard, `g1-pro-tier` → Pro, `g1-ultra-tier` → Ultra; unknown IDs fall back to the tier name.
+
+If the access token is expired, `internal/usage` refreshes it through `internal/oauth` using the refresh token and the runtime-discovered Antigravity client. The refreshed token is used in memory only; snapshots are not rewritten. The provider caches successful snapshots for 60 seconds. On a later failure, the cached value is returned with `stale: true` and a short `usage_error` code.
+
+`list` enriches rows concurrently with a bounded worker count and a 30-second overall budget. A quota failure never fails the command. `list --no-usage` skips the provider entirely.
 
 ## Live views
 
 `list --live`, `switch --live`, and `remove --live` use a raw-mode, alternate-screen controller. It repaints at 1 Hz, refreshes the live credential and registry every 60 seconds in the background, and uses a generation counter so an in-flight refresh cannot overwrite a newer switch/remove action.
 
-The viewport keeps the selected row visible, pages with PgUp/PgDn, and preserves selection by account ID across refreshes. `switch --live` switches on Enter and stays open; `remove --live` toggles checkboxes with Space and removes checked accounts on Enter. The status line reports the live source (`keyring`/`file`) and the next refresh; the action line reports the last switch/remove result. `--live` requires a terminal and is rejected with `--json`.
+The first frame is built from local credential/registry data, then an asynchronous refresh adds quota data without blocking keys. The viewport keeps the selected row visible, pages with PgUp/PgDn, and preserves selection by account ID across refreshes. `switch --live` switches on Enter and stays open; `remove --live` toggles checkboxes with Space and removes checked accounts on Enter. `switch --live` also auto-switches once per session when the active account is at 0% on a fresh 5-hour or weekly window: it chooses a healthy stored account with the earliest reset. Stale quota data is never used for auto-switch. The status line reports the live source (`keyring`/`file`), the next refresh, and a quota-error count; the action line reports the last switch/remove result. `--live` requires a terminal and is rejected with `--json`.
 
 ## Backups
 
@@ -168,6 +193,8 @@ The login flow uses the public Antigravity/Gemini OAuth client embedded in the a
 The callback page displays the authorization code in a copyable box. It removes `code` from the address bar but keeps `state`. `agy-auth` accepts a bare code or a callback URL and validates `state` when present.
 
 The token exchange sends `client_id`, `client_secret`, `code`, `code_verifier`, `grant_type=authorization_code`, and `redirect_uri`.
+
+`oauth.Refresh` uses the same client with `grant_type=refresh_token` and preserves the stored refresh token when Google does not return a replacement. Usage lookups use it for expired access tokens; the refreshed token is not written back to the snapshot.
 
 If Google does not return a new refresh token during a re-login, `agy-auth` reuses the refresh token from the existing snapshot with the same subject.
 

@@ -151,6 +151,37 @@ func Exchange(ctx context.Context, code, verifier string) (*TokenResponse, error
 	form.Set("grant_type", "authorization_code")
 	form.Set("redirect_uri", RedirectURI)
 
+	return requestToken(ctx, form, "token exchange")
+}
+
+// Refresh exchanges a stored refresh token for a new access token. The caller
+// keeps the returned values in memory; agy remains the credential owner.
+func Refresh(ctx context.Context, refreshToken string) (*TokenResponse, error) {
+	if strings.TrimSpace(refreshToken) == "" {
+		return nil, errors.New("refresh token is empty")
+	}
+	if ClientID == "" || ClientSecret == "" {
+		if err := EnsureClient(""); err != nil {
+			return nil, err
+		}
+	}
+	form := url.Values{}
+	form.Set("client_id", ClientID)
+	form.Set("client_secret", ClientSecret)
+	form.Set("refresh_token", refreshToken)
+	form.Set("grant_type", "refresh_token")
+
+	response, err := requestToken(ctx, form, "token refresh")
+	if err != nil {
+		return nil, err
+	}
+	if response.RefreshToken == "" {
+		response.RefreshToken = refreshToken
+	}
+	return response, nil
+}
+
+func requestToken(ctx context.Context, form url.Values, action string) (*TokenResponse, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
@@ -160,7 +191,7 @@ func Exchange(ctx context.Context, code, verifier string) (*TokenResponse, error
 
 	response, err := HTTPClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("token exchange request: %w", err)
+		return nil, fmt.Errorf("%s request: %w", action, err)
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
@@ -180,10 +211,10 @@ func Exchange(ctx context.Context, code, verifier string) (*TokenResponse, error
 		if description == "" {
 			description = http.StatusText(response.StatusCode)
 		}
-		return nil, fmt.Errorf("token exchange failed (HTTP %d): %s", response.StatusCode, description)
+		return nil, fmt.Errorf("%s failed (HTTP %d): %s", action, response.StatusCode, description)
 	}
 	if tokenResponse.AccessToken == "" {
-		return nil, errors.New("token response did not contain an access token")
+		return nil, fmt.Errorf("%s response did not contain an access token", action)
 	}
 	if tokenResponse.TokenType == "" {
 		tokenResponse.TokenType = "Bearer"

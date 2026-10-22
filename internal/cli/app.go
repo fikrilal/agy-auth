@@ -14,6 +14,7 @@ import (
 	"github.com/fikrilal/agy-auth/internal/agy"
 	"github.com/fikrilal/agy-auth/internal/backup"
 	"github.com/fikrilal/agy-auth/internal/registry"
+	"github.com/fikrilal/agy-auth/internal/usage"
 	"golang.org/x/term"
 )
 
@@ -25,6 +26,7 @@ type App struct {
 	Err        io.Writer
 	Store      *registry.Store
 	Storage    *agy.Storage
+	Usage      usage.Provider
 	Now        func() time.Time
 	TTY        bool
 	OutTTY     bool
@@ -52,6 +54,7 @@ func New() (*App, error) {
 		Err:        os.Stderr,
 		Store:      store,
 		Storage:    storage,
+		Usage:      usage.NewCache(usage.NewClient(Version)),
 		Now:        time.Now,
 		TTY:        term.IsTerminal(int(os.Stdin.Fd())),
 		OutTTY:     term.IsTerminal(int(os.Stdout.Fd())),

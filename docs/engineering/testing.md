@@ -9,8 +9,9 @@ The test strategy is simple: behavior is tested at the lowest layer that proves 
 | Credential parsing | `internal/agy/token_test.go` | JSON shape, JWT claims, expiry, fingerprints |
 | Storage | `internal/agy/storage_test.go` | file backend, permissions, atomic writes, corrupt input |
 | Registry | `internal/registry/registry_test.go` | upsert, dedupe, aliases, queries, permissions |
-| OAuth | `internal/oauth/oauth_test.go` | PKCE, auth URL, code normalization, token exchange, discovery |
-| CLI behavior | `internal/cli/cli_test.go` | lifecycle, help parity, JSON output, command behavior |
+| OAuth | `internal/oauth/oauth_test.go` | PKCE, auth URL, code normalization, token exchange, refresh, discovery |
+| Usage | `internal/usage/usage_test.go` | request shape, project/User-Agent, token refresh, summary parsing, cache/stale fallback |
+| CLI behavior | `internal/cli/cli_test.go` | lifecycle, help parity, JSON output, usage columns, auto-switch selection |
 | Contracts | `harness/fixtures` + `harness contracts` | independent credential/registry shapes |
 | Keyring | `TestKeyringRoundTrip` (opt-in) | real Secret Service round-trip with a throwaway service |
 | TUI/PTY | manual or focused PTY tests | interactive picker behavior and terminal hygiene |
@@ -37,8 +38,8 @@ Use `make verify-full` for changes that touch concurrency, credential storage, r
 
 - Real Google OAuth login (requires a browser and a real account).
 - Real keyring reads/writes in CI.
-- Network-dependent quota or usage checks until the data source is confirmed.
-- Live visual assertions that are better reviewed by a human.
+- Live quota API calls in CI; `internal/usage` uses `httptest`, and CLI usage tests inject a fake provider.
+- Live visual assertions that are better reviewed by a human. A real-account `list --active --no-sync` smoke check is manual.
 
 ## Adding tests
 

@@ -15,6 +15,10 @@ All notable changes to this project are documented here.
 - Shared active-first/email ordering and `01`-style row numbers across list, pickers, numeric queries, and JSON list output.
 - Width-aware tables that truncate account names and drop lower-priority columns; same-email accounts are grouped under a header with indented, numbered children.
 - Live views for `list`, `switch`, and `remove`: 1 Hz repaint, 60-second background refresh, viewport paging, status/action lines, switch-on-Enter, and checkbox removal.
+- Plan and shared 5-hour/weekly quota columns in `list` and the live views, backed by the Antigravity Code Assist quota API with a 60-second cache and stale-value fallback.
+- `list --no-usage` to skip quota lookups.
+- `switch --live` auto-switch when the active account is at 0% on a fresh 5-hour or weekly window, choosing the healthy stored account with the earliest reset.
+- List JSON rows now include `plan`, `usage`, and `usage_error`.
 
 ### Changed
 
@@ -33,6 +37,7 @@ All notable changes to this project are documented here.
 - `remove` resolves and deduplicates all selectors before deleting; snapshot deletion failures return `state_uncertain` without saving registry changes.
 - Alias messages distinguish set, already set, updated, and cleared.
 - Credential and registry writes are write-if-changed and re-harden permissions.
+- Expired access tokens are refreshed in memory for quota lookups through the discovered Antigravity OAuth client; snapshots are not rewritten.
 
 ## [0.1.0] - 2026-10-20
 

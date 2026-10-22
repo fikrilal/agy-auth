@@ -15,7 +15,7 @@ Start here, then follow the topic-specific source.
 - [Engineering guides](engineering/README.md) — agent workflow, architecture, testing, code standards
 - [Execution plans](exec-plans/README.md) — when and how to write a plan
 - [ADRs](adr/README.md) — durable architecture decisions
-- [Internals](internals.md) — credential storage, registry, switching, OAuth
+- [Internals](internals.md) — credential storage, registry, switching, OAuth, quota
 - [Release process](release.md) — versioning, npm publishing, GitHub release
 
 ## Rule of thumb
