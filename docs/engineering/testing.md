@@ -14,7 +14,7 @@ The test strategy is simple: behavior is tested at the lowest layer that proves 
 | CLI behavior | `internal/cli/cli_test.go` | lifecycle, help parity, JSON output, usage columns, `usage --all` groups, live interval, model-aware auto-switch |
 | Contracts | `harness/fixtures` + `harness contracts` | independent credential/registry shapes |
 | Keyring | `TestKeyringRoundTrip` (opt-in) | real Secret Service round-trip with a throwaway service |
-| TUI/PTY | manual or focused PTY tests | interactive picker behavior and terminal hygiene |
+| TUI/PTY | `internal/cli/{keys,pty}_test.go` | key decoding, type-ahead, incremental paint, live PTY open/navigate/quit |
 
 ## Isolation
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
 	"github.com/fikrilal/agy-auth/internal/registry"
@@ -26,6 +27,24 @@ func (a *App) chooseAccount(accounts []registry.Account, activeID, title string,
 	}
 	account := accounts[index]
 	return &account, nil
+}
+
+func matchRowNumber(rows []accountRow, value string) int {
+	target := strings.TrimLeft(value, "0")
+	if target == "" {
+		return -1
+	}
+	for i := range rows {
+		if strconv.Itoa(rows[i].Number) == target {
+			return i
+		}
+	}
+	for i := range rows {
+		if strings.HasPrefix(strconv.Itoa(rows[i].Number), target) {
+			return i
+		}
+	}
+	return -1
 }
 
 func accountNumbers(reg *registry.Registry) map[string]int {
@@ -124,64 +143,74 @@ func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, ti
 	render := func() {
 		fmt.Fprint(a.Out, "\x1b[H\x1b[2J")
 		fmt.Fprintf(a.Out, "%s\r\n", a.bold(title))
-		fmt.Fprintf(a.Out, "%s\r\n", a.dim("up/down or j/k move · enter select · q cancel"))
+		fmt.Fprintf(a.Out, "%s\r\n", a.dim("up/down or j/k move · 0-9 jump · enter select · q cancel"))
 		fmt.Fprint(a.Out, "\r\n")
 		a.renderAccountTable(rows, now, index, "\r\n")
 	}
 
 	render()
-	buf := make([]byte, 16)
-	for {
-		n, err := a.StdinFile.Read(buf)
-		if err != nil {
-			return -1, err
-		}
-		if n == 0 {
+	keys := make(chan keyEvent, 8)
+	go readKeyEvents(a.StdinFile, keys)
+	digits := ""
+	var digitAt time.Time
+	for key := range keys {
+		now := time.Now()
+		if digit, ok := key.digit(); ok {
+			if !digitAt.IsZero() && now.Sub(digitAt) > typeaheadTimeout {
+				digits = ""
+			}
+			digits += string(digit)
+			digitAt = now
+			if matched := matchRowNumber(rows, digits); matched >= 0 {
+				index = matched
+			}
+			render()
 			continue
 		}
-		key := buf[:n]
-		switch {
-		case key[0] == 3 || key[0] == 'q':
+		digits = ""
+		digitAt = time.Time{}
+		switch key.kind {
+		case keyCtrlC, keyEsc:
 			return -1, errCancelled
-		case key[0] == '\r' || key[0] == '\n':
+		case keyEnter:
 			return index, nil
-		case key[0] == 27:
-			if n == 1 {
-				return -1, errCancelled
-			}
-			if n >= 3 && (key[1] == '[' || key[1] == 'O') {
-				switch key[2] {
-				case 'A':
-					if index > 0 {
-						index--
-					}
-				case 'B':
-					if index < len(accounts)-1 {
-						index++
-					}
-				case 'H':
-					index = 0
-				case 'F':
-					index = len(accounts) - 1
-				}
-			}
-		case key[0] == 'k':
+		case keyUp:
 			if index > 0 {
 				index--
 			}
-		case key[0] == 'j':
+		case keyDown:
 			if index < len(accounts)-1 {
 				index++
 			}
-		case key[0] == 'g':
+		case keyHome:
 			index = 0
-		case key[0] == 'G':
+		case keyEnd:
 			index = len(accounts) - 1
+		case keyRune:
+			switch key.r {
+			case 'q':
+				return -1, errCancelled
+			case 'k':
+				if index > 0 {
+					index--
+				}
+			case 'j':
+				if index < len(accounts)-1 {
+					index++
+				}
+			case 'g':
+				index = 0
+			case 'G':
+				index = len(accounts) - 1
+			default:
+				continue
+			}
 		default:
 			continue
 		}
 		render()
 	}
+	return -1, errors.New("input closed")
 }
 
 func (a *App) chooseAccountInteractiveFallback(accounts []registry.Account, activeID, title string, numbers map[string]int, cause error) (int, error) {

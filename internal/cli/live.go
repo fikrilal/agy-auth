@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -46,11 +45,11 @@ func (m liveMode) title() string {
 func (m liveMode) help() string {
 	switch m {
 	case liveModeSwitch:
-		return "up/down move · pgup/pgdn page · enter switch · q quit"
+		return "up/down move · 0-9 jump · pgup/pgdn page · enter switch · q quit"
 	case liveModeRemove:
-		return "up/down move · space toggle · enter remove · q quit"
+		return "up/down move · 0-9 jump · space toggle · enter remove · q quit"
 	default:
-		return "up/down move · pgup/pgdn page · q quit"
+		return "up/down move · 0-9 jump · pgup/pgdn page · q quit"
 	}
 }
 
@@ -68,6 +67,10 @@ type liveState struct {
 	interval     time.Duration
 	gen          int
 	autoSwitched bool
+	digits       string
+	digitAt      time.Time
+	prevFrame    []string
+	painted      bool
 }
 
 type liveRefreshResult struct {
@@ -83,6 +86,36 @@ func liveVisibleRows(height int) int {
 		visible = 3
 	}
 	return visible
+}
+
+func (s *liveState) clearTypeahead() {
+	s.digits = ""
+	s.digitAt = time.Time{}
+}
+
+func (s *liveState) typeDigit(r rune, now time.Time) {
+	if !s.digitAt.IsZero() && now.Sub(s.digitAt) > typeaheadTimeout {
+		s.digits = ""
+	}
+	s.digits += string(r)
+	s.digitAt = now
+	if rows := s.matchNumber(s.digits); rows != nil {
+		s.selectedID = rows.ID
+	}
+}
+
+func (s *liveState) expireTypeahead(now time.Time) {
+	if !s.digitAt.IsZero() && now.Sub(s.digitAt) > typeaheadTimeout {
+		s.clearTypeahead()
+	}
+}
+
+func (s *liveState) matchNumber(value string) *accountRow {
+	index := matchRowNumber(s.rows, value)
+	if index < 0 {
+		return nil
+	}
+	return &s.rows[index]
 }
 
 func (s *liveState) selectedIndex() int {
@@ -525,8 +558,8 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 	state.apply(rows, source, loadErr, a.now(), state.interval)
 	state.gen = 1
 
-	keys := make(chan []byte, 8)
-	go readLiveKeys(a.StdinFile, keys)
+	keys := make(chan keyEvent, 8)
+	go readKeyEvents(a.StdinFile, keys)
 	refreshCh := make(chan liveRefreshResult, 4)
 	startRefresh := func() {
 		if state.refreshing {
@@ -542,6 +575,9 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	resizeTicker := time.NewTicker(250 * time.Millisecond)
+	defer resizeTicker.Stop()
+	lastWidth, lastHeight := a.tableWidth(), a.tableHeight()
 	startRefresh()
 	a.renderLiveFrame(state, mode)
 
@@ -574,82 +610,53 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 			}
 			a.renderLiveFrame(state, mode)
 		case now := <-ticker.C:
+			state.expireTypeahead(now)
 			if !state.refreshing && (state.nextRefresh.IsZero() || !now.Before(state.nextRefresh)) {
 				state.gen++
 				startRefresh()
 			}
 			a.renderLiveFrame(state, mode)
-		}
-	}
-}
-
-func readLiveKeys(file *os.File, keys chan<- []byte) {
-	defer close(keys)
-	buf := make([]byte, 16)
-	for {
-		n, err := file.Read(buf)
-		if err != nil {
-			return
-		}
-		if n == 0 {
-			continue
-		}
-		key := make([]byte, n)
-		copy(key, buf[:n])
-		keys <- key
-	}
-}
-
-func (a *App) handleLiveKey(state *liveState, key []byte, mode liveMode, logout bool) (bool, bool) {
-	if len(key) == 0 {
-		return false, false
-	}
-	switch {
-	case key[0] == 3 || key[0] == 'q':
-		return true, false
-	case key[0] == 27:
-		if len(key) == 1 {
-			return true, false
-		}
-		if len(key) >= 3 && (key[1] == '[' || key[1] == 'O') {
-			switch key[2] {
-			case 'A':
-				state.move(-1)
-			case 'B':
-				state.move(1)
-			case 'H':
-				state.moveTo(0)
-			case 'F':
-				state.moveTo(len(state.rows) - 1)
-			case '5', '6':
-				if len(key) >= 4 && key[3] == '~' {
-					delta := -1
-					if key[2] == '6' {
-						delta = 1
-					}
-					state.page(delta, liveVisibleRows(a.tableHeight()))
-				}
-			case '1', '4':
-				if len(key) >= 4 && key[3] == '~' {
-					if key[2] == '1' {
-						state.moveTo(0)
-					} else {
-						state.moveTo(len(state.rows) - 1)
-					}
-				}
+		case <-resizeTicker.C:
+			width, height := a.tableWidth(), a.tableHeight()
+			if width != lastWidth || height != lastHeight {
+				lastWidth, lastHeight = width, height
+				state.prevFrame = nil
+				state.painted = false
+				a.renderLiveFrame(state, mode)
 			}
 		}
-	case key[0] == 'k':
+	}
+}
+
+func (a *App) handleLiveKey(state *liveState, key keyEvent, mode liveMode, logout bool) (bool, bool) {
+	if key.kind == keyCtrlC || (key.kind == keyRune && key.r == 'q') {
+		return true, false
+	}
+	if digit, ok := key.digit(); ok {
+		state.typeDigit(digit, a.now())
+		return false, false
+	}
+	state.clearTypeahead()
+	switch key.kind {
+	case keyEsc:
+		return true, false
+	case keyUp:
 		state.move(-1)
-	case key[0] == 'j':
+	case keyDown:
 		state.move(1)
-	case key[0] == 'g':
+	case keyPageUp:
+		state.page(-1, liveVisibleRows(a.tableHeight()))
+	case keyPageDown:
+		state.page(1, liveVisibleRows(a.tableHeight()))
+	case keyHome:
 		state.moveTo(0)
-	case key[0] == 'G':
+	case keyEnd:
 		state.moveTo(len(state.rows) - 1)
-	case key[0] == ' ' && mode == liveModeRemove:
-		state.toggleChecked()
-	case key[0] == '\r' || key[0] == '\n':
+	case keySpace:
+		if mode == liveModeRemove {
+			state.toggleChecked()
+		}
+	case keyEnter:
 		switch mode {
 		case liveModeSwitch:
 			if row := state.selectedRow(); row != nil {
@@ -669,6 +676,17 @@ func (a *App) handleLiveKey(state *liveState, key []byte, mode liveMode, logout 
 			}
 			state.action = a.liveRemove(ids, logout)
 			return false, true
+		}
+	case keyRune:
+		switch key.r {
+		case 'k':
+			state.move(-1)
+		case 'j':
+			state.move(1)
+		case 'g':
+			state.moveTo(0)
+		case 'G':
+			state.moveTo(len(state.rows) - 1)
 		}
 	}
 	return false, false
@@ -710,13 +728,17 @@ func (a *App) liveRemove(ids []string, logout bool) string {
 }
 
 func (a *App) renderLiveFrame(state *liveState, mode liveMode) {
+	a.paintLiveFrame(state, a.liveFrameLines(state, mode))
+}
+
+func (a *App) liveFrameLines(state *liveState, mode liveMode) []string {
 	width := a.tableWidth()
 	now := a.now()
-	fmt.Fprint(a.Out, "\x1b[H\x1b[2J")
-	fmt.Fprintf(a.Out, "%s\r\n", a.bold(truncatePlain(mode.title(), width)))
-	fmt.Fprint(a.Out, "\r\n")
+	var buffer bytes.Buffer
+	fmt.Fprintf(&buffer, "%s\n", a.bold(truncatePlain(mode.title(), width)))
+	fmt.Fprint(&buffer, "\n")
 	if len(state.rows) == 0 {
-		fmt.Fprint(a.Out, "No accounts stored.\r\n")
+		fmt.Fprint(&buffer, "No accounts stored.\n")
 	} else {
 		start, end := state.viewport(a.tableHeight())
 		selected := state.selectedIndex()
@@ -734,15 +756,36 @@ func (a *App) renderLiveFrame(state *liveState, mode liveMode) {
 		for i := range visible {
 			visible[i].Highlight = start+i == selected
 		}
-		a.renderTableRows(a.Out, width, columns, allRows, visible, "\r\n")
+		a.renderTableRows(&buffer, width, columns, allRows, visible, "\n")
 	}
-	fmt.Fprintf(a.Out, "%s\r\n", truncatePlain(state.statusLine(now), width))
+	fmt.Fprintf(&buffer, "%s\n", truncatePlain(state.statusLine(now), width))
 	if mode != liveModeList {
 		action := state.action
 		if action == "" {
 			action = " "
 		}
-		fmt.Fprintf(a.Out, "%s\r\n", truncatePlain(action, width))
+		fmt.Fprintf(&buffer, "%s\n", truncatePlain(action, width))
 	}
-	fmt.Fprintf(a.Out, "%s\r\n", truncatePlain(mode.help(), width))
+	fmt.Fprintf(&buffer, "%s\n", truncatePlain(mode.help(), width))
+	return strings.Split(strings.TrimRight(buffer.String(), "\n"), "\n")
+}
+
+func (a *App) paintLiveFrame(state *liveState, lines []string) {
+	if !state.painted {
+		fmt.Fprint(a.Out, "\x1b[H\x1b[2J")
+	}
+	for i, line := range lines {
+		if state.painted && i < len(state.prevFrame) && state.prevFrame[i] == line {
+			continue
+		}
+		fmt.Fprintf(a.Out, "\x1b[%d;1H%s\x1b[K", i+1, line)
+		if i < len(lines)-1 {
+			fmt.Fprint(a.Out, "\r\n")
+		}
+	}
+	for i := len(lines); i < len(state.prevFrame); i++ {
+		fmt.Fprintf(a.Out, "\x1b[%d;1H\x1b[K", i+1)
+	}
+	state.prevFrame = append([]string(nil), lines...)
+	state.painted = true
 }

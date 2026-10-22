@@ -1423,26 +1423,46 @@ func TestLiveNavigationAndToggle(t *testing.T) {
 	env := newTestEnv(t, false)
 	app, _, _ := env.app("")
 	state := liveState{rows: makeLiveRows(5), selectedID: "acct_1", checked: map[string]bool{}}
-	if quit, refresh := app.handleLiveKey(&state, []byte("j"), liveModeRemove, false); quit || refresh {
+	if quit, refresh := app.handleLiveKey(&state, keyEvent{kind: keyRune, r: 'j'}, liveModeRemove, false); quit || refresh {
 		t.Fatalf("j = quit %v refresh %v", quit, refresh)
 	}
 	if state.selectedID != "acct_2" {
 		t.Errorf("selected = %q", state.selectedID)
 	}
-	app.handleLiveKey(&state, []byte(" "), liveModeRemove, false)
+	app.handleLiveKey(&state, keyEvent{kind: keySpace}, liveModeRemove, false)
 	if !state.checked["acct_2"] {
 		t.Errorf("checked = %+v", state.checked)
 	}
-	app.handleLiveKey(&state, []byte("G"), liveModeRemove, false)
+	app.handleLiveKey(&state, keyEvent{kind: keyRune, r: 'G'}, liveModeRemove, false)
 	if state.selectedID != "acct_5" {
 		t.Errorf("end selected = %q", state.selectedID)
 	}
-	app.handleLiveKey(&state, []byte("g"), liveModeRemove, false)
+	app.handleLiveKey(&state, keyEvent{kind: keyRune, r: 'g'}, liveModeRemove, false)
 	if state.selectedID != "acct_1" {
 		t.Errorf("home selected = %q", state.selectedID)
 	}
-	if quit, _ := app.handleLiveKey(&state, []byte("q"), liveModeRemove, false); !quit {
+	if quit, _ := app.handleLiveKey(&state, keyEvent{kind: keyRune, r: 'q'}, liveModeRemove, false); !quit {
 		t.Error("q did not quit")
+	}
+}
+
+func TestLiveTypeahead(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, _, _ := env.app("")
+	state := liveState{rows: makeLiveRows(12), selectedID: "acct_1"}
+	app.handleLiveKey(&state, keyEvent{kind: keyRune, r: '1'}, liveModeRemove, false)
+	if state.selectedID != "acct_1" {
+		t.Errorf("first digit selected = %q", state.selectedID)
+	}
+	app.handleLiveKey(&state, keyEvent{kind: keyRune, r: '2'}, liveModeRemove, false)
+	if state.selectedID != "acct_12" {
+		t.Errorf("two-digit selected = %q", state.selectedID)
+	}
+	state.digits = "1"
+	state.digitAt = testNow.Add(-2 * time.Second)
+	app.handleLiveKey(&state, keyEvent{kind: keyRune, r: '2'}, liveModeRemove, false)
+	if state.selectedID != "acct_2" {
+		t.Errorf("expired typeahead selected = %q", state.selectedID)
 	}
 }
 

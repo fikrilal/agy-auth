@@ -15,6 +15,7 @@ All notable changes to this project are documented here.
 - Shared active-first/email ordering and `01`-style row numbers across list, pickers, numeric queries, and JSON list output.
 - Width-aware tables that truncate account names and drop lower-priority columns; same-email accounts are grouped under a header with indented, numbered children.
 - Live views for `list`, `switch`, and `remove`: 1 Hz repaint, configurable background refresh, viewport paging, status/action lines, switch-on-Enter, and checkbox removal.
+- Live input now handles arrows/SS3/CSI-u, modified keys, lone-Esc timeout, and `0-9` row jump type-ahead; frames repaint incrementally and reflow on resize.
 - Plan and shared 5-hour/weekly quota columns in `list` and the live views, backed by the Antigravity Code Assist quota API with a 60-second cache (or the live interval) and stale-value fallback.
 - `list --no-usage` to skip quota lookups.
 - `switch --live` auto-switch now prefers fresh named quota groups (Gemini, Claude/GPT, and tier-specific groups), falling back to the shared summary/model detail only when groups are unavailable; stale data is ignored.
