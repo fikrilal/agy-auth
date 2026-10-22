@@ -25,15 +25,17 @@ var commandSpecs = []CommandSpec{
 		Group:    "Account management",
 		Synopsis: "list, ls",
 		Summary:  "List stored accounts and the live agy account",
-		Usage:    []string{"agy-auth list [--active] [--no-sync]"},
+		Usage:    []string{"agy-auth list [--active] [--no-sync] [--live]"},
 		Description: "List stored accounts. The live agy credential is marked with *.\n" +
 			"The active account snapshot is refreshed automatically when agy has rotated\n" +
-			"its tokens; pass --no-sync to keep this command read-only.",
+			"its tokens; pass --no-sync to keep this command read-only. --live opens a\n" +
+			"refreshing interactive view.",
 		Options: []OptionSpec{
 			{Flag: "--active", Description: "Only show the active account"},
 			{Flag: "--no-sync", Description: "Do not update the stored snapshot of the live account"},
+			{Flag: "--live", Description: "Interactive live view"},
 		},
-		Examples: []string{"agy-auth list", "agy-auth list --active"},
+		Examples: []string{"agy-auth list", "agy-auth list --active", "agy-auth list --live"},
 	},
 	{
 		Name:     "add",
@@ -74,11 +76,15 @@ var commandSpecs = []CommandSpec{
 		Group:    "Account management",
 		Synopsis: "switch, use [query]",
 		Summary:  "Switch the active agy account",
-		Usage:    []string{"agy-auth switch [<query>]"},
+		Usage:    []string{"agy-auth switch [<query>|-] [--live]"},
 		Description: "Switch the active agy credential. Without a query, an interactive picker is\n" +
 			"shown. Queries accept a row number from \"agy-auth list\", an alias, an exact\n" +
-			"email, an email substring, or an account ID prefix.",
-		Examples: []string{"agy-auth switch work", "agy-auth switch 2"},
+			"email, an email substring, or an account ID prefix. --live opens a refreshing\n" +
+			"view and switches on Enter.",
+		Options: []OptionSpec{
+			{Flag: "--live", Description: "Interactive live view; select and press Enter to switch"},
+		},
+		Examples: []string{"agy-auth switch work", "agy-auth switch 2", "agy-auth switch --live"},
 		Notes: []string{
 			"Restart agy after switching; an already-running agy process keeps the old",
 			"credential in memory.",
@@ -90,15 +96,17 @@ var commandSpecs = []CommandSpec{
 		Group:    "Account management",
 		Synopsis: "remove, rm [query]",
 		Summary:  "Remove stored accounts",
-		Usage:    []string{"agy-auth remove [<query>...] [--all] [--logout] [--yes]"},
+		Usage:    []string{"agy-auth remove [<query>...] [--all] [--logout] [--yes] [--live]"},
 		Description: "Remove stored account snapshots. Removing an account does not sign agy out\n" +
-			"unless --logout is passed. With no query, an interactive prompt is shown.",
+			"unless --logout is passed. With no query, an interactive prompt is shown.\n" +
+			"--live opens a checkbox view and removes checked accounts on Enter.",
 		Options: []OptionSpec{
 			{Flag: "--all", Description: "Remove every stored account"},
 			{Flag: "--logout", Description: "Also delete the live agy credential when removing the active account"},
 			{Flag: "--yes", Description: "Skip the confirmation prompt"},
+			{Flag: "--live", Description: "Interactive live view; Space toggles and Enter removes"},
 		},
-		Examples: []string{"agy-auth remove work", "agy-auth remove --all --yes"},
+		Examples: []string{"agy-auth remove work", "agy-auth remove --all --yes", "agy-auth remove --live"},
 	},
 	{
 		Name:     "alias",

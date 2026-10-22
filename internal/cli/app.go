@@ -31,6 +31,7 @@ type App struct {
 	JSON       bool
 	NoColor    bool
 	Width      int
+	Height     int
 	Command    string
 	StdinFile  *os.File
 	StdoutFile *os.File

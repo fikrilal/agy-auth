@@ -13,11 +13,18 @@ func (a *App) cmdList(args []string) int {
 	fs := a.newFlagSet("list")
 	activeOnly := fs.Bool("active", false, "only show the active account")
 	noSync := fs.Bool("no-sync", false, "do not refresh the stored snapshot of the live account")
+	live := fs.Bool("live", false, "interactive live view")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
 	if fs.NArg() > 0 {
 		return a.usageFor("list", "list takes no arguments")
+	}
+	if *live {
+		if *activeOnly {
+			return a.usageFor("list", "list --live cannot be combined with --active")
+		}
+		return a.runLive(liveModeList, false)
 	}
 
 	reg, err := a.Store.Load()

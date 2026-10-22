@@ -14,10 +14,17 @@ func (a *App) cmdRemove(args []string) int {
 	all := fs.Bool("all", false, "remove every stored account")
 	logout := fs.Bool("logout", false, "also delete the live agy credential when removing the active account")
 	yes := fs.Bool("yes", false, "skip the confirmation prompt")
+	live := fs.Bool("live", false, "interactive live view")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
 
+	if *live {
+		if fs.NArg() > 0 || *all {
+			return a.usageFor("remove", "remove --live does not take selectors or --all")
+		}
+		return a.runLive(liveModeRemove, *logout)
+	}
 	if *all && fs.NArg() > 0 {
 		return a.usageFor("remove", "remove --all cannot be combined with a query")
 	}

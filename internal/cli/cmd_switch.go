@@ -11,11 +11,18 @@ import (
 
 func (a *App) cmdSwitch(args []string) int {
 	fs := a.newFlagSet("switch")
+	live := fs.Bool("live", false, "interactive live view")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
 	if fs.NArg() > 1 {
 		return a.usageFor("switch", "switch accepts at most one query")
+	}
+	if *live {
+		if fs.NArg() > 0 {
+			return a.usageFor("switch", "switch --live does not take a query")
+		}
+		return a.runLive(liveModeSwitch, false)
 	}
 	if a.JSON && fs.NArg() == 0 {
 		return a.usageFor("switch", "switch --json requires a query")

@@ -14,6 +14,7 @@ All notable changes to this project are documented here.
 - `agy-auth import --purge` to rebuild `registry.json` from stored snapshots, carrying aliases and active/previous where possible.
 - Shared active-first/email ordering and `01`-style row numbers across list, pickers, numeric queries, and JSON list output.
 - Width-aware tables that truncate account names and drop lower-priority columns; same-email accounts are grouped under a header with indented, numbered children.
+- Live views for `list`, `switch`, and `remove`: 1 Hz repaint, 60-second background refresh, viewport paging, status/action lines, switch-on-Enter, and checkbox removal.
 
 ### Changed
 

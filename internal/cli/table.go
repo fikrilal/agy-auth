@@ -45,8 +45,24 @@ func (a *App) tableWidth() int {
 	return 100
 }
 
+func (a *App) tableHeight() int {
+	if a.Height > 0 {
+		return a.Height
+	}
+	if a.StdoutFile != nil {
+		if _, height, err := term.GetSize(int(a.StdoutFile.Fd())); err == nil && height > 0 {
+			return height
+		}
+	}
+	return 24
+}
+
 func (a *App) renderTable(out io.Writer, width int, columns []tableColumn, rows []tableRow, newline string) {
-	widths, selected := fitTableColumns(width, columns, rows)
+	a.renderTableRows(out, width, columns, rows, rows, newline)
+}
+
+func (a *App) renderTableRows(out io.Writer, width int, columns []tableColumn, widthRows []tableRow, rows []tableRow, newline string) {
+	widths, selected := fitTableColumns(width, columns, widthRows)
 	headers := make([]string, len(columns))
 	for i := range columns {
 		headers[i] = columns[i].Header

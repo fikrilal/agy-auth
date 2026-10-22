@@ -129,45 +129,54 @@ func (a *App) renderAccountTable(rows []accountRow, now time.Time, highlight int
 			tableRows = append(tableRows, tableRow{Group: a.dim(header)})
 			continue
 		}
-		row := *display.Row
-		number := "-"
-		if row.Number > 0 {
-			number = fmt.Sprintf("%02d", row.Number)
-		}
-		marker := " "
-		if row.Active {
-			marker = a.green("*")
-		}
-		account := row.displayName()
-		if display.Indent {
-			account = "  " + row.groupLabel()
-		}
-		if !row.Stored {
-			account += " (not stored)"
-		}
-		method := row.AuthMethod
-		if method == "" {
-			method = "-"
-		}
-		expiry := "-"
-		if row.ExpiresAt != nil {
-			expiry = humanUntil(*row.ExpiresAt, now)
-			if row.Expired {
-				expiry = a.red("expired")
-			} else if row.ExpiresAt.Sub(now) < 24*time.Hour {
-				expiry = a.yellow(expiry)
-			}
-		}
-		last := "-"
-		if row.LastUsedAt != nil {
-			last = row.LastUsedAt.Format("2006-01-02")
-		}
-		tableRows = append(tableRows, tableRow{
-			Cells:     []string{number, marker, account, expiry, method, last},
-			Highlight: display.Index == highlight,
-		})
+		tableRow := a.accountTableRow(*display.Row, now, nil, display.Indent)
+		tableRow.Highlight = display.Index == highlight
+		tableRows = append(tableRows, tableRow)
 	}
 	a.renderTable(a.Out, width, accountTableColumns, tableRows, newline)
+}
+
+func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, indent bool) tableRow {
+	number := "-"
+	if row.Number > 0 {
+		number = fmt.Sprintf("%02d", row.Number)
+	}
+	marker := " "
+	if row.Active {
+		marker = a.green("*")
+	}
+	account := row.displayName()
+	if indent {
+		account = "  " + row.groupLabel()
+	}
+	if checked != nil {
+		prefix := "[ ] "
+		if *checked {
+			prefix = "[x] "
+		}
+		account = prefix + account
+	}
+	if !row.Stored {
+		account += " (not stored)"
+	}
+	method := row.AuthMethod
+	if method == "" {
+		method = "-"
+	}
+	expiry := "-"
+	if row.ExpiresAt != nil {
+		expiry = humanUntil(*row.ExpiresAt, now)
+		if row.Expired {
+			expiry = a.red("expired")
+		} else if row.ExpiresAt.Sub(now) < 24*time.Hour {
+			expiry = a.yellow(expiry)
+		}
+	}
+	last := "-"
+	if row.LastUsedAt != nil {
+		last = row.LastUsedAt.Format("2006-01-02")
+	}
+	return tableRow{Cells: []string{number, marker, account, expiry, method, last}}
 }
 
 // visibleWidth approximates terminal width for the small set of styled cells

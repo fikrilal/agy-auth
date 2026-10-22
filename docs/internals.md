@@ -101,6 +101,12 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 
 The non-live table uses `#`, `ACCOUNT`, `EXPIRES`, `METHOD`, and `LAST` columns. It fits the terminal width by truncating the account label and dropping lower-priority columns on narrow terminals. Plan and usage columns are deferred until the quota source is reliable.
 
+## Live views
+
+`list --live`, `switch --live`, and `remove --live` use a raw-mode, alternate-screen controller. It repaints at 1 Hz, refreshes the live credential and registry every 60 seconds in the background, and uses a generation counter so an in-flight refresh cannot overwrite a newer switch/remove action.
+
+The viewport keeps the selected row visible, pages with PgUp/PgDn, and preserves selection by account ID across refreshes. `switch --live` switches on Enter and stays open; `remove --live` toggles checkboxes with Space and removes checked accounts on Enter. The status line reports the live source (`keyring`/`file`) and the next refresh; the action line reports the last switch/remove result. `--live` requires a terminal and is rejected with `--json`.
+
 ## Backups
 
 Before replacing or deleting the live credential, `internal/agy.Storage` writes the current raw credential to `backups/active-<timestamp>.json`. `registry.Store.Save` writes the previous `registry.json` to `backups/registry-<timestamp>.json` before changing it. Both use `0600` files in a `0700` directory and keep the newest 5 of each kind. Identical backup content is deduplicated. Registry and file writes that do not change bytes only re-harden permissions; credential writes still refresh the keyring.

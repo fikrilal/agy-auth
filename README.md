@@ -15,6 +15,7 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 - Toggle back to the previous account with `switch -`.
 - Candidate picker for ambiguous queries in a terminal.
 - Width-aware tables with active-first numbering and same-email grouping.
+- Live views for list, switch, and remove with viewport paging and a 60-second refresh.
 - Add the account that is currently signed in (`add`).
 - Add another account through Google OAuth with PKCE (`login`) without touching the current credential first.
 - Import and export raw credential JSON.
@@ -100,11 +101,11 @@ After switching, restart `agy`. An already-running `agy` process keeps the old c
 
 | Command | Description |
 |---------|-------------|
-| `agy-auth list [--active] [--no-sync]` | List stored accounts and the live account |
+| `agy-auth list [--active] [--no-sync] [--live]` | List stored accounts and the live account |
 | `agy-auth add [--alias <alias>]` | Save the account currently signed in to agy |
 | `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
-| `agy-auth switch [<query>|-]` | Switch interactively, by query, or back to the previous account |
-| `agy-auth remove [<query>...] [--all] [--logout] [--yes]` | Remove stored accounts |
+| `agy-auth switch [<query>|-] [--live]` | Switch interactively, by query, or back to the previous account |
+| `agy-auth remove [<query>...] [--all] [--logout] [--yes] [--live]` | Remove stored accounts |
 | `agy-auth alias set <query> <alias>` | Set an alias |
 | `agy-auth alias clear <query>` | Clear an alias |
 | `agy-auth alias list` | List aliases |
@@ -164,6 +165,8 @@ Before replacing or deleting the live credential, `agy-auth` snapshots the curre
 Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
 
 Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns.
+
+`list --live`, `switch --live`, and `remove --live` open an interactive view with a 1 Hz repaint and a 60-second credential/registry refresh. `switch --live` switches on Enter and stays open; `remove --live` uses Space to check rows and Enter to remove them. `--live` requires a terminal and cannot be combined with `--json`.
 
 `remove` resolves and deduplicates every selector before deleting anything. If a later selector fails, no account is removed.
 

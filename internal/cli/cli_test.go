@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1306,6 +1307,183 @@ func TestRenderAccountTableGroupsSameEmail(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("grouped table missing %q: %q", want, out.String())
 		}
+	}
+}
+
+func makeLiveRows(count int) []accountRow {
+	rows := make([]accountRow, count)
+	for i := range rows {
+		rows[i] = accountRow{
+			Number:     i + 1,
+			ID:         fmt.Sprintf("acct_%d", i+1),
+			Stored:     true,
+			Email:      fmt.Sprintf("user%d@example.com", i+1),
+			Alias:      fmt.Sprintf("alias%d", i+1),
+			AuthMethod: "consumer",
+		}
+	}
+	return rows
+}
+
+func TestLiveRequiresTTY(t *testing.T) {
+	env := newTestEnv(t, false)
+	for _, args := range [][]string{
+		{"list", "--live"},
+		{"switch", "--live"},
+		{"remove", "--live"},
+	} {
+		app, _, errOut := env.app("")
+		if code := app.Run(args); code != 2 {
+			t.Errorf("%v exit = %d", args, code)
+		}
+		if !strings.Contains(errOut.String(), "requires an interactive terminal") {
+			t.Errorf("%v stderr = %q", args, errOut.String())
+		}
+	}
+
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"list", "--live", "--json"}); code != 2 {
+		t.Fatalf("json live exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "usage" || !strings.Contains(envelope.Error.Message, "cannot be used with --json") {
+		t.Errorf("unexpected error: %+v", envelope.Error)
+	}
+}
+
+func TestLiveViewport(t *testing.T) {
+	state := liveState{rows: makeLiveRows(10), selectedID: "acct_10"}
+	start, end := state.viewport(10)
+	if start != 6 || end != 10 {
+		t.Errorf("viewport = [%d,%d), want [6,10)", start, end)
+	}
+	state.moveTo(0)
+	start, end = state.viewport(10)
+	if start != 0 || end != 4 {
+		t.Errorf("home viewport = [%d,%d), want [0,4)", start, end)
+	}
+	state.selectedID = "acct_5"
+	start, end = state.viewport(10)
+	if start > 4 || end <= 4 {
+		t.Errorf("selected row not visible: [%d,%d)", start, end)
+	}
+}
+
+func TestLiveStatusLine(t *testing.T) {
+	state := liveState{source: "keyring", nextRefresh: testNow.Add(42 * time.Second)}
+	if line := state.statusLine(testNow); line != "Live refresh: keyring | Refresh in 42s" {
+		t.Errorf("status = %q", line)
+	}
+	state.refreshing = true
+	if line := state.statusLine(testNow); !strings.Contains(line, "Refresh running") {
+		t.Errorf("running status = %q", line)
+	}
+	state.refreshing = false
+	state.refreshErr = "refresh failed"
+	if line := state.statusLine(testNow); !strings.Contains(line, "Error: refresh failed") {
+		t.Errorf("error status = %q", line)
+	}
+}
+
+func TestRenderLiveFrame(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.Width = 48
+	app.Height = 10
+	state := liveState{
+		rows:        makeLiveRows(10),
+		selectedID:  "acct_10",
+		checked:     map[string]bool{"acct_10": true},
+		action:      "Removed 1 account(s).",
+		source:      "keyring",
+		nextRefresh: testNow.Add(42 * time.Second),
+		interval:    time.Minute,
+	}
+	app.renderLiveFrame(&state, liveModeRemove)
+	text := out.String()
+	for _, want := range []string{"Select accounts to remove", "[x]", "Live refresh: keyring | Refresh in 42s", "Removed 1 account(s).", "space toggle"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("frame missing %q: %q", want, text)
+		}
+	}
+	if !strings.Contains(text, "07") || strings.Contains(text, "01 ") {
+		t.Errorf("viewport did not start at the selected row: %q", text)
+	}
+	for _, line := range strings.Split(text, "\r\n") {
+		if visibleWidth(line) > app.Width {
+			t.Errorf("line exceeds width: %q (%d)", line, visibleWidth(line))
+		}
+	}
+}
+
+func TestLiveNavigationAndToggle(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, _, _ := env.app("")
+	state := liveState{rows: makeLiveRows(5), selectedID: "acct_1", checked: map[string]bool{}}
+	if quit, refresh := app.handleLiveKey(&state, []byte("j"), liveModeRemove, false); quit || refresh {
+		t.Fatalf("j = quit %v refresh %v", quit, refresh)
+	}
+	if state.selectedID != "acct_2" {
+		t.Errorf("selected = %q", state.selectedID)
+	}
+	app.handleLiveKey(&state, []byte(" "), liveModeRemove, false)
+	if !state.checked["acct_2"] {
+		t.Errorf("checked = %+v", state.checked)
+	}
+	app.handleLiveKey(&state, []byte("G"), liveModeRemove, false)
+	if state.selectedID != "acct_5" {
+		t.Errorf("end selected = %q", state.selectedID)
+	}
+	app.handleLiveKey(&state, []byte("g"), liveModeRemove, false)
+	if state.selectedID != "acct_1" {
+		t.Errorf("home selected = %q", state.selectedID)
+	}
+	if quit, _ := app.handleLiveKey(&state, []byte("q"), liveModeRemove, false); !quit {
+		t.Error("q did not quit")
+	}
+}
+
+func TestLiveSilentActions(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := reg.Resolve("first")
+	second := reg.Resolve("second")
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatalf("resolution first=%v second=%v", first, second)
+	}
+
+	app, _, _ = env.app("")
+	action := app.liveSwitch(second[0].ID, second[0].DisplayName())
+	if !strings.Contains(action, "Switched to") {
+		t.Errorf("switch action = %q", action)
+	}
+	reg, err = registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Active != second[0].ID {
+		t.Errorf("active = %q, want %q", reg.Active, second[0].ID)
+	}
+
+	app, _, _ = env.app("")
+	action = app.liveRemove([]string{first[0].ID}, false)
+	if !strings.Contains(action, "Removed 1") {
+		t.Errorf("remove action = %q", action)
+	}
+	reg, err = registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 1 || reg.FindByID(first[0].ID) != nil {
+		t.Errorf("registry after remove = %+v", reg.Accounts)
 	}
 }
 
