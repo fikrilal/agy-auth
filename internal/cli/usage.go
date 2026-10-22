@@ -18,6 +18,7 @@ const usageWorkers = 4
 type usageRowResult struct {
 	snapshot usage.Snapshot
 	detail   *usage.Detail
+	groups   *usage.Groups
 	err      error
 }
 
@@ -46,6 +47,10 @@ func (a *App) enrichUsageFull(rows []accountRow) map[string]int {
 		if full.Detail.Buckets != nil {
 			detail := full.Detail
 			result.detail = &detail
+		}
+		if full.Groups.Groups != nil {
+			groups := full.Groups
+			result.groups = &groups
 		}
 		return result
 	})
@@ -96,6 +101,9 @@ func (a *App) enrichRows(rows []accountRow, fetch usageFetcher) map[string]int {
 				}
 				if result.detail != nil {
 					rows[job.index].detail = result.detail
+				}
+				if result.groups != nil {
+					rows[job.index].groups = result.groups
 				}
 				if result.err != nil {
 					code := usage.ShortError(result.err)

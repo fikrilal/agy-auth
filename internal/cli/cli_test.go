@@ -2252,6 +2252,47 @@ func TestAutoSwitchCandidateUsesModelDetail(t *testing.T) {
 	}
 }
 
+func TestAutoSwitchCandidatePrefersNamedGroups(t *testing.T) {
+	reset := testNow.Add(time.Hour)
+	healthy := usage.Groups{Groups: []usage.Group{
+		{Name: "Gemini Models", Buckets: []usage.GroupBucket{
+			{Window: "weekly", RemainingPercent: 58, RemainingFraction: 0.58, ResetTime: reset.Format(time.RFC3339)},
+			{Window: "5h", RemainingPercent: 100, RemainingFraction: 1, ResetTime: reset.Format(time.RFC3339)},
+		}},
+		{Name: "Claude and GPT models", Buckets: []usage.GroupBucket{
+			{Window: "weekly", RemainingPercent: 100, RemainingFraction: 1, ResetTime: reset.Format(time.RFC3339)},
+			{Window: "5h", RemainingPercent: 100, RemainingFraction: 1, ResetTime: reset.Format(time.RFC3339)},
+		}},
+	}}
+	exhausted := usage.Groups{Groups: []usage.Group{
+		{Name: "Gemini Models", Buckets: []usage.GroupBucket{
+			{Window: "weekly", RemainingPercent: 0, RemainingFraction: 0, ResetTime: reset.Format(time.RFC3339)},
+			{Window: "5h", RemainingPercent: 100, RemainingFraction: 1, ResetTime: reset.Format(time.RFC3339)},
+		}},
+	}}
+	active := accountRow{
+		ID:     "acct_active",
+		Active: true,
+		groups: &healthy,
+		Usage:  &usage.Snapshot{FiveHour: &usage.Window{RemainingPercent: 0}},
+		detail: &usage.Detail{Buckets: []usage.Model{{ModelID: "old-detail", RemainingPercent: 0}}},
+	}
+	candidate := accountRow{ID: "acct_candidate", groups: &healthy}
+	if got := autoSwitchCandidate([]accountRow{active, candidate}); got != nil {
+		t.Errorf("named groups should override stale model detail: %+v", got)
+	}
+
+	active.groups = &exhausted
+	if got := autoSwitchCandidate([]accountRow{active, candidate}); got == nil || got.ID != "acct_candidate" {
+		t.Errorf("exhausted named group did not trigger switch: %+v", got)
+	}
+
+	candidate.groups = &exhausted
+	if got := autoSwitchCandidate([]accountRow{active, candidate}); got != nil {
+		t.Errorf("exhausted candidate should be skipped: %+v", got)
+	}
+}
+
 func TestMaybeAutoSwitch(t *testing.T) {
 	env := newTestEnv(t, true)
 	app, _, errOut := env.app("")

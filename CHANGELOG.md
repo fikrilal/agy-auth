@@ -17,7 +17,7 @@ All notable changes to this project are documented here.
 - Live views for `list`, `switch`, and `remove`: 1 Hz repaint, configurable background refresh, viewport paging, status/action lines, switch-on-Enter, and checkbox removal.
 - Plan and shared 5-hour/weekly quota columns in `list` and the live views, backed by the Antigravity Code Assist quota API with a 60-second cache (or the live interval) and stale-value fallback.
 - `list --no-usage` to skip quota lookups.
-- `switch --live` auto-switch when the active account is at 0% on a fresh 5-hour/weekly window or model bucket, choosing the healthy stored account with the earliest reset; stale detail is ignored.
+- `switch --live` auto-switch now prefers fresh named quota groups (Gemini, Claude/GPT, and tier-specific groups), falling back to the shared summary/model detail only when groups are unavailable; stale data is ignored.
 - List JSON rows now include `plan`, `usage`, and `usage_error`.
 - `agy-auth usage [<query>]` for Antigravity quota groups: Gemini Models, Claude and GPT models, and tier-specific groups such as Ultra.
 - `agy-auth usage --all` to compare the same group rows across every stored account.

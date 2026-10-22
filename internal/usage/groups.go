@@ -18,6 +18,10 @@ type GroupBucket struct {
 	ResetTime         string  `json:"reset_time,omitempty"`
 }
 
+func (b GroupBucket) ResetAt() (time.Time, bool) {
+	return parseReset(b.ResetTime)
+}
+
 type Group struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description,omitempty"`
@@ -28,6 +32,7 @@ type Groups struct {
 	Description string    `json:"description,omitempty"`
 	Groups      []Group   `json:"groups"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	Stale       bool      `json:"stale,omitempty"`
 }
 
 type GroupsProvider interface {
@@ -52,10 +57,14 @@ func (c *Client) FetchGroups(ctx context.Context, token *agy.TokenFile) (Groups,
 		return Groups{}, statusError(status)
 	}
 
+	return groupsFromSummary(summary, c.now().UTC()), nil
+}
+
+func groupsFromSummary(summary quotaSummaryResponse, now time.Time) Groups {
 	groups := Groups{
 		Description: summary.Description,
 		Groups:      []Group{},
-		UpdatedAt:   c.now().UTC(),
+		UpdatedAt:   now,
 	}
 	for _, source := range summary.Groups {
 		group := Group{Name: source.DisplayName, Description: source.Description, Buckets: []GroupBucket{}}
@@ -75,5 +84,5 @@ func (c *Client) FetchGroups(ctx context.Context, token *agy.TokenFile) (Groups,
 		}
 		groups.Groups = append(groups.Groups, group)
 	}
-	return groups, nil
+	return groups
 }

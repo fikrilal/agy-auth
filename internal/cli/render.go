@@ -63,6 +63,7 @@ type accountRow struct {
 
 	token  *agy.TokenFile
 	detail *usage.Detail
+	groups *usage.Groups
 }
 
 func (r accountRow) displayName() string {

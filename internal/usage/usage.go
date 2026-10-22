@@ -104,6 +104,7 @@ func (d Detail) Exhausted() bool {
 type Full struct {
 	Snapshot Snapshot
 	Detail   Detail
+	Groups   Groups
 	Err      error
 }
 
@@ -196,6 +197,7 @@ func (c *Client) FetchFull(ctx context.Context, _ string, token *agy.TokenFile) 
 	full := Full{
 		Snapshot: Snapshot{Plan: planLabel(assist), UpdatedAt: now},
 		Detail:   Detail{Plan: planLabel(assist), Buckets: []Model{}, UpdatedAt: now},
+		Groups:   Groups{Groups: []Group{}, UpdatedAt: now},
 	}
 	var summary quotaSummaryResponse
 	status, err := c.post(ctx, "retrieveUserQuotaSummary", quotaSummaryRequest{Project: project}, accessToken, &summary)
@@ -206,6 +208,7 @@ func (c *Client) FetchFull(ctx context.Context, _ string, token *agy.TokenFile) 
 		full.Err = statusError(status)
 	default:
 		applySummary(&full.Snapshot, summary)
+		full.Groups = groupsFromSummary(summary, now)
 	}
 
 	var quota quotaResponse
@@ -549,6 +552,7 @@ func (c *FullCache) FetchFull(ctx context.Context, key string, token *agy.TokenF
 		if found {
 			entry.Full.Snapshot.Stale = true
 			entry.Full.Detail.Stale = true
+			entry.Full.Groups.Stale = true
 			return entry.Full, err
 		}
 		return full, err

@@ -373,15 +373,39 @@ func autoSwitchCandidate(rows []accountRow) *accountRow {
 	return best
 }
 
+func groupDataUsable(row *accountRow) bool {
+	if row == nil || row.groups == nil || row.groups.Stale {
+		return false
+	}
+	for _, group := range row.groups.Groups {
+		if len(group.Buckets) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func quotaDataFresh(row *accountRow) bool {
 	if row == nil {
 		return false
 	}
-	return (row.Usage != nil && !row.Usage.Stale) || (row.detail != nil && !row.detail.Stale)
+	return groupDataUsable(row) ||
+		(row.Usage != nil && !row.Usage.Stale) ||
+		(row.detail != nil && !row.detail.Stale)
 }
 
 func quotaExhausted(row *accountRow) bool {
 	if row == nil {
+		return false
+	}
+	if groupDataUsable(row) {
+		for _, group := range row.groups.Groups {
+			for _, bucket := range group.Buckets {
+				if bucket.RemainingPercent <= 0 {
+					return true
+				}
+			}
+		}
 		return false
 	}
 	if row.Usage != nil && !row.Usage.Stale {
@@ -398,6 +422,18 @@ func quotaExhausted(row *accountRow) bool {
 func quotaAvailable(row *accountRow) bool {
 	if row == nil {
 		return false
+	}
+	if groupDataUsable(row) {
+		hasData := false
+		for _, group := range row.groups.Groups {
+			for _, bucket := range group.Buckets {
+				hasData = true
+				if bucket.RemainingPercent <= 0 {
+					return false
+				}
+			}
+		}
+		return hasData
 	}
 	hasData := false
 	if row.Usage != nil && !row.Usage.Stale {
@@ -423,6 +459,22 @@ func quotaNextReset(row *accountRow) time.Time {
 		return time.Time{}
 	}
 	var next time.Time
+	if groupDataUsable(row) {
+		for _, group := range row.groups.Groups {
+			for _, bucket := range group.Buckets {
+				reset, ok := bucket.ResetAt()
+				if !ok {
+					continue
+				}
+				if next.IsZero() || reset.Before(next) {
+					next = reset
+				}
+			}
+		}
+		if !next.IsZero() {
+			return next
+		}
+	}
 	if row.Usage != nil && !row.Usage.Stale {
 		for _, window := range []*usage.Window{row.Usage.FiveHour, row.Usage.Weekly} {
 			if window == nil || window.ResetsAt == nil {

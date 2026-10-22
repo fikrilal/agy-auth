@@ -161,9 +161,9 @@ func TestFetchFull(t *testing.T) {
 			_ = json.NewEncoder(writer).Encode(map[string]any{"paidTier": map[string]any{"id": "g1-pro-tier"}})
 		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuotaSummary"):
 			_ = json.NewEncoder(writer).Encode(map[string]any{"groups": []any{
-				map[string]any{"buckets": []any{
-					map[string]any{"window": "5h", "remainingFraction": 0.8, "resetTime": "2026-10-22T18:11:00Z"},
-					map[string]any{"window": "weekly", "remainingFraction": 0.6, "resetTime": "2026-10-29T13:11:00Z"},
+				map[string]any{"displayName": "Gemini Models", "buckets": []any{
+					map[string]any{"bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.6, "resetTime": "2026-10-29T13:11:00Z"},
+					map[string]any{"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.8, "resetTime": "2026-10-22T18:11:00Z"},
 				}},
 			}})
 		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuota"):
@@ -195,6 +195,12 @@ func TestFetchFull(t *testing.T) {
 	}
 	if full.Detail.Lowest() == nil || full.Detail.Lowest().RemainingPercent != 95 {
 		t.Errorf("detail = %+v", full.Detail)
+	}
+	if len(full.Groups.Groups) != 1 || full.Groups.Groups[0].Name != "Gemini Models" {
+		t.Errorf("groups = %+v", full.Groups)
+	}
+	if len(full.Groups.Groups[0].Buckets) != 2 || full.Groups.Groups[0].Buckets[0].RemainingPercent != 60 {
+		t.Errorf("group buckets = %+v", full.Groups.Groups[0].Buckets)
 	}
 }
 
@@ -252,6 +258,7 @@ func TestFullCacheTTLAndStaleFallback(t *testing.T) {
 	provider := &fakeFullProvider{full: Full{
 		Snapshot: Snapshot{Plan: "Pro", FiveHour: &Window{RemainingPercent: 80}},
 		Detail:   Detail{Buckets: []Model{{ModelID: "gemini-2.5-pro", RemainingPercent: 95}}},
+		Groups:   Groups{Groups: []Group{{Name: "Gemini Models", Buckets: []GroupBucket{{Window: "5h", RemainingPercent: 80}}}}},
 	}}
 	cache := &FullCache{Provider: provider, TTL: time.Minute, Now: func() time.Time { return now }}
 	token := usageTestToken(now.Add(time.Hour))
@@ -272,7 +279,7 @@ func TestFullCacheTTLAndStaleFallback(t *testing.T) {
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("stale error = %v", err)
 	}
-	if !stale.Snapshot.Stale || !stale.Detail.Stale || stale.Detail.Lowest() == nil {
+	if !stale.Snapshot.Stale || !stale.Detail.Stale || !stale.Groups.Stale || stale.Detail.Lowest() == nil {
 		t.Fatalf("stale full = %+v", stale)
 	}
 }
