@@ -61,7 +61,8 @@ type accountRow struct {
 	Usage      *usage.Snapshot `json:"usage,omitempty"`
 	UsageError string          `json:"usage_error,omitempty"`
 
-	token *agy.TokenFile
+	token  *agy.TokenFile
+	detail *usage.Detail
 }
 
 func (r accountRow) displayName() string {

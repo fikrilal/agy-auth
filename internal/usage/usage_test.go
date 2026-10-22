@@ -209,6 +209,148 @@ func TestFetchDetail(t *testing.T) {
 	}
 }
 
+func TestFetchFull(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(request.URL.Path, ":loadCodeAssist"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{"paidTier": map[string]any{"id": "g1-pro-tier"}})
+		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuotaSummary"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{"groups": []any{
+				map[string]any{"buckets": []any{
+					map[string]any{"window": "5h", "remainingFraction": 0.8, "resetTime": "2026-10-22T18:11:00Z"},
+					map[string]any{"window": "weekly", "remainingFraction": 0.6, "resetTime": "2026-10-29T13:11:00Z"},
+				}},
+			}})
+		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuota"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{"buckets": []any{
+				map[string]any{"modelId": "gemini-2.5-pro", "remainingFraction": 0.95, "resetTime": "2026-10-22T14:11:00Z"},
+			}})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{
+		Endpoint:   server.URL + "/v1internal",
+		ProjectID:  "project-1",
+		UserAgent:  "antigravity/test",
+		HTTPClient: server.Client(),
+		Now:        func() time.Time { return usageTestNow },
+	}
+	full, err := client.FetchFull(context.Background(), "acct_1", usageTestToken(usageTestNow.Add(time.Hour)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.Err != nil {
+		t.Errorf("partial error = %v", full.Err)
+	}
+	if full.Snapshot.Plan != "Pro" || full.Snapshot.FiveHour == nil || full.Snapshot.FiveHour.RemainingPercent != 80 {
+		t.Errorf("snapshot = %+v", full.Snapshot)
+	}
+	if full.Detail.Lowest() == nil || full.Detail.Lowest().RemainingPercent != 95 {
+		t.Errorf("detail = %+v", full.Detail)
+	}
+}
+
+func TestFetchFullKeepsDetailWhenSummaryFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(request.URL.Path, ":loadCodeAssist"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{"paidTier": map[string]any{"id": "g1-pro-tier"}})
+		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuotaSummary"):
+			writer.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(writer).Encode(map[string]any{})
+		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuota"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{"buckets": []any{
+				map[string]any{"modelId": "gemini-2.5-pro", "remainingFraction": 0.95},
+			}})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{
+		Endpoint:   server.URL + "/v1internal",
+		ProjectID:  "project-1",
+		UserAgent:  "antigravity/test",
+		HTTPClient: server.Client(),
+		Now:        func() time.Time { return usageTestNow },
+	}
+	full, err := client.FetchFull(context.Background(), "acct_1", usageTestToken(usageTestNow.Add(time.Hour)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(full.Err, ErrForbidden) {
+		t.Errorf("partial error = %v", full.Err)
+	}
+	if full.Detail.Lowest() == nil || full.Detail.Lowest().RemainingPercent != 95 {
+		t.Errorf("detail = %+v", full.Detail)
+	}
+}
+
+type fakeFullProvider struct {
+	calls int
+	full  Full
+	err   error
+}
+
+func (f *fakeFullProvider) FetchFull(context.Context, string, *agy.TokenFile) (Full, error) {
+	f.calls++
+	return f.full, f.err
+}
+
+func TestFullCacheTTLAndStaleFallback(t *testing.T) {
+	now := usageTestNow
+	provider := &fakeFullProvider{full: Full{
+		Snapshot: Snapshot{Plan: "Pro", FiveHour: &Window{RemainingPercent: 80}},
+		Detail:   Detail{Buckets: []Model{{ModelID: "gemini-2.5-pro", RemainingPercent: 95}}},
+	}}
+	cache := &FullCache{Provider: provider, TTL: time.Minute, Now: func() time.Time { return now }}
+	token := usageTestToken(now.Add(time.Hour))
+
+	first, err := cache.FetchFull(context.Background(), "acct_1", token)
+	if err != nil || first.Detail.Lowest() == nil {
+		t.Fatalf("first fetch = %+v, %v", first, err)
+	}
+	now = now.Add(30 * time.Second)
+	second, err := cache.FetchFull(context.Background(), "acct_1", token)
+	if err != nil || provider.calls != 1 || second.Snapshot.Stale {
+		t.Fatalf("cached fetch calls=%d stale=%v err=%v", provider.calls, second.Snapshot.Stale, err)
+	}
+
+	now = now.Add(2 * time.Minute)
+	provider.err = ErrTimeout
+	stale, err := cache.FetchFull(context.Background(), "acct_1", token)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("stale error = %v", err)
+	}
+	if !stale.Snapshot.Stale || !stale.Detail.Stale || stale.Detail.Lowest() == nil {
+		t.Fatalf("stale full = %+v", stale)
+	}
+}
+
+func TestDetailLowestAndExhausted(t *testing.T) {
+	detail := Detail{Buckets: []Model{
+		{ModelID: "a", RemainingPercent: 100},
+		{ModelID: "b", RemainingPercent: 20},
+		{ModelID: "c", RemainingPercent: 20},
+	}}
+	if lowest := detail.Lowest(); lowest == nil || lowest.ModelID != "b" {
+		t.Errorf("lowest = %+v", lowest)
+	}
+	if detail.Exhausted() {
+		t.Error("detail should not be exhausted")
+	}
+	detail.Buckets[1].RemainingPercent = 0
+	if !detail.Exhausted() {
+		t.Error("detail should be exhausted")
+	}
+}
+
 func TestFetchKeepsPlanOnForbiddenQuota(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

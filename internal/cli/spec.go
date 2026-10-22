@@ -142,13 +142,18 @@ var commandSpecs = []CommandSpec{
 	{
 		Name:     "usage",
 		Group:    "Account management",
-		Synopsis: "usage [query]",
+		Synopsis: "usage [query] [--all]",
 		Summary:  "Show per-model quota details",
-		Usage:    []string{"agy-auth usage [<query>]"},
+		Usage: []string{
+			"agy-auth usage [<query>]",
+			"agy-auth usage --all",
+		},
 		Description: "Show per-model quota buckets for the live account, the active stored account,\n" +
-			"or one account selected by query. The shared 5H/weekly summary is shown by\n" +
+			"or one account selected by query. --all compares every stored account by its\n" +
+			"lowest model bucket and reset. The shared 5H/weekly summary is shown by\n" +
 			"`agy-auth list`; this view includes model-level buckets such as Gemini.",
-		Examples: []string{"agy-auth usage", "agy-auth usage work", "agy-auth usage --json"},
+		Options:  []OptionSpec{{Flag: "--all", Description: "Show every stored account"}},
+		Examples: []string{"agy-auth usage", "agy-auth usage work", "agy-auth usage --all", "agy-auth usage --json"},
 	},
 	{
 		Name:     "import",

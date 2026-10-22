@@ -70,10 +70,49 @@ type Detail struct {
 	Plan      string    `json:"-"`
 	Buckets   []Model   `json:"buckets"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Stale     bool      `json:"stale,omitempty"`
+}
+
+func (d Detail) Lowest() *Model {
+	if len(d.Buckets) == 0 {
+		return nil
+	}
+	best := 0
+	for i := 1; i < len(d.Buckets); i++ {
+		if d.Buckets[i].RemainingPercent < d.Buckets[best].RemainingPercent {
+			best = i
+			continue
+		}
+		if d.Buckets[i].RemainingPercent == d.Buckets[best].RemainingPercent && d.Buckets[i].ResetsAt != nil {
+			if d.Buckets[best].ResetsAt == nil || d.Buckets[i].ResetsAt.Before(*d.Buckets[best].ResetsAt) {
+				best = i
+			}
+		}
+	}
+	return &d.Buckets[best]
+}
+
+func (d Detail) Exhausted() bool {
+	for _, bucket := range d.Buckets {
+		if bucket.RemainingPercent <= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 type DetailProvider interface {
 	FetchDetail(ctx context.Context, token *agy.TokenFile) (Detail, error)
+}
+
+type Full struct {
+	Snapshot Snapshot
+	Detail   Detail
+	Err      error
+}
+
+type FullProvider interface {
+	FetchFull(ctx context.Context, key string, token *agy.TokenFile) (Full, error)
 }
 
 type Client struct {
@@ -164,7 +203,54 @@ func (c *Client) FetchDetail(ctx context.Context, token *agy.TokenFile) (Detail,
 	if status < http.StatusOK || status > 299 {
 		return Detail{}, statusError(status)
 	}
-	detail := Detail{Plan: planLabel(assist), Buckets: []Model{}, UpdatedAt: c.now().UTC()}
+	return detailFromQuota(assist, quota, c.now().UTC()), nil
+}
+
+func (c *Client) FetchFull(ctx context.Context, _ string, token *agy.TokenFile) (Full, error) {
+	accessToken, err := c.accessToken(ctx, token)
+	if err != nil {
+		return Full{}, err
+	}
+	project, assist, err := c.loadCodeAssist(ctx, accessToken)
+	if err != nil {
+		return Full{}, err
+	}
+
+	now := c.now().UTC()
+	full := Full{
+		Snapshot: Snapshot{Plan: planLabel(assist), UpdatedAt: now},
+		Detail:   Detail{Plan: planLabel(assist), Buckets: []Model{}, UpdatedAt: now},
+	}
+	var summary quotaSummaryResponse
+	status, err := c.post(ctx, "retrieveUserQuotaSummary", quotaSummaryRequest{Project: project}, accessToken, &summary)
+	switch {
+	case err != nil:
+		full.Err = err
+	case status < http.StatusOK || status > 299:
+		full.Err = statusError(status)
+	default:
+		applySummary(&full.Snapshot, summary)
+	}
+
+	var quota quotaResponse
+	status, err = c.post(ctx, "retrieveUserQuota", quotaRequest{Project: project}, accessToken, &quota)
+	switch {
+	case err != nil:
+		if full.Err == nil {
+			full.Err = err
+		}
+	case status < http.StatusOK || status > 299:
+		if full.Err == nil {
+			full.Err = statusError(status)
+		}
+	default:
+		full.Detail = detailFromQuota(assist, quota, now)
+	}
+	return full, nil
+}
+
+func detailFromQuota(assist codeAssistResponse, quota quotaResponse, now time.Time) Detail {
+	detail := Detail{Plan: planLabel(assist), Buckets: []Model{}, UpdatedAt: now}
 	for _, bucket := range quota.Buckets {
 		if strings.TrimSpace(bucket.ModelID) == "" || bucket.RemainingFraction == nil {
 			continue
@@ -185,7 +271,7 @@ func (c *Client) FetchDetail(ctx context.Context, token *agy.TokenFile) (Detail,
 		}
 		return detail.Buckets[i].TokenType < detail.Buckets[j].TokenType
 	})
-	return detail, nil
+	return detail
 }
 
 func (c *Client) accessToken(ctx context.Context, token *agy.TokenFile) (string, error) {
@@ -443,6 +529,83 @@ func (c *Cache) ttl() time.Duration {
 }
 
 func (c *Cache) now() time.Time {
+	if c.Now != nil {
+		return c.Now()
+	}
+	return time.Now()
+}
+
+type FullCache struct {
+	Provider FullProvider
+	TTL      time.Duration
+	Now      func() time.Time
+
+	mu      sync.Mutex
+	entries map[string]fullCacheEntry
+}
+
+type fullCacheEntry struct {
+	Full    Full
+	Fetched time.Time
+}
+
+func NewFullCache(provider FullProvider) *FullCache {
+	return &FullCache{Provider: provider, TTL: DefaultTTL, Now: time.Now}
+}
+
+func (c *FullCache) FetchFull(ctx context.Context, key string, token *agy.TokenFile) (Full, error) {
+	if c == nil || c.Provider == nil {
+		return Full{}, ErrUnavailable
+	}
+	if key == "" {
+		return c.Provider.FetchFull(ctx, key, token)
+	}
+	now := c.now()
+	c.mu.Lock()
+	entry, found := c.entries[key]
+	c.mu.Unlock()
+	if found && now.Sub(entry.Fetched) < c.ttl() {
+		return entry.Full, nil
+	}
+
+	full, err := c.Provider.FetchFull(ctx, key, token)
+	if err != nil {
+		if found {
+			entry.Full.Snapshot.Stale = true
+			entry.Full.Detail.Stale = true
+			return entry.Full, err
+		}
+		return full, err
+	}
+	if full.Err != nil {
+		return full, nil
+	}
+	c.mu.Lock()
+	if c.entries == nil {
+		c.entries = map[string]fullCacheEntry{}
+	}
+	c.entries[key] = fullCacheEntry{Full: full, Fetched: now}
+	c.mu.Unlock()
+	return full, nil
+}
+
+func (c *FullCache) SetTTL(ttl time.Duration) {
+	c.mu.Lock()
+	c.TTL = ttl
+	c.mu.Unlock()
+}
+
+func (c *FullCache) ttl() time.Duration {
+	c.mu.Lock()
+	ttl := c.TTL
+	c.mu.Unlock()
+	if ttl > 0 {
+		return ttl
+	}
+	return DefaultTTL
+}
+
+func (c *FullCache) now() time.Time {
 	if c.Now != nil {
 		return c.Now()
 	}

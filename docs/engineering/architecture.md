@@ -12,7 +12,7 @@ internal/cli/          commands, rendering, picker, App IO
 internal/agy/          credential JSON, keyring/file backend
 internal/registry/     account snapshots, metadata, queries
 internal/oauth/        PKCE login, token refresh, client discovery
-internal/usage/        plan/quota provider, request parsing, TTL cache
+internal/usage/        plan/quota provider, full/model fetch, TTL caches
 internal/backup/       timestamped credential/registry backups
 
 npm/bin/               Node shim for prebuilt binaries
@@ -60,7 +60,7 @@ See [Internals](../internals.md) for the full document shapes, registry schema, 
 
 `internal/cli/app.go` owns command dispatch, global flags, and the `App` writers. `cmd/agy-auth/main.go` only wires standard streams and exits. Library packages return errors; only `App` renders user-facing output.
 
-The picker and rendering live in `internal/cli/picker.go`, `table.go`, `render.go`, and `util.go`. `usage.go` enriches rows from `internal/usage` with bounded concurrency; `cmd_usage.go` exposes the per-model detail view; `cmd_config.go` owns the live interval setting. `live.go` owns the raw-mode live views, refresh/generation state, quota-aware auto-switch, and switch/remove actions. Account rows are ordered by `registry.SortAccounts` during load (active first, then email), and both list and picker share the same 1-based numbers. The width-aware table truncates the flex column and drops lower-priority columns; keep future TUI work on the same row model and selection by account ID.
+The picker and rendering live in `internal/cli/picker.go`, `table.go`, `render.go`, and `util.go`. `usage.go` enriches rows from `internal/usage` with bounded concurrency; `cmd_usage.go` exposes the single-account and `--all` per-model views; `cmd_config.go` owns the live interval setting. `live.go` owns the raw-mode live views, refresh/generation state, quota-aware auto-switch, and switch/remove actions. Account rows are ordered by `registry.SortAccounts` during load (active first, then email), and both list and picker share the same 1-based numbers. The width-aware table truncates the flex column and drops lower-priority columns; keep future TUI work on the same row model and selection by account ID.
 
 ## Packaging
 

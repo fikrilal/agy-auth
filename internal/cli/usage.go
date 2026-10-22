@@ -15,8 +15,44 @@ import (
 const usageFetchTimeout = 30 * time.Second
 const usageWorkers = 4
 
+type usageRowResult struct {
+	snapshot usage.Snapshot
+	detail   *usage.Detail
+	err      error
+}
+
+type usageFetcher func(ctx context.Context, key string, token *agy.TokenFile) usageRowResult
+
 func (a *App) enrichUsage(rows []accountRow) map[string]int {
-	if a.Usage == nil || len(rows) == 0 {
+	if a.Usage == nil {
+		return nil
+	}
+	return a.enrichRows(rows, func(ctx context.Context, key string, token *agy.TokenFile) usageRowResult {
+		snapshot, err := a.Usage.Fetch(ctx, key, token)
+		return usageRowResult{snapshot: snapshot, err: err}
+	})
+}
+
+func (a *App) enrichUsageFull(rows []accountRow) map[string]int {
+	if a.UsageFull == nil {
+		return a.enrichUsage(rows)
+	}
+	return a.enrichRows(rows, func(ctx context.Context, key string, token *agy.TokenFile) usageRowResult {
+		full, err := a.UsageFull.FetchFull(ctx, key, token)
+		if err != nil {
+			return usageRowResult{err: err}
+		}
+		result := usageRowResult{snapshot: full.Snapshot, err: full.Err}
+		if full.Detail.Buckets != nil {
+			detail := full.Detail
+			result.detail = &detail
+		}
+		return result
+	})
+}
+
+func (a *App) enrichRows(rows []accountRow, fetch usageFetcher) map[string]int {
+	if fetch == nil || len(rows) == 0 {
 		return nil
 	}
 	type job struct {
@@ -50,16 +86,19 @@ func (a *App) enrichUsage(rows []accountRow) map[string]int {
 		go func() {
 			defer wait.Done()
 			for job := range queue {
-				snapshot, err := a.Usage.Fetch(ctx, job.key, job.token)
-				if snapshot.Plan != "" {
-					rows[job.index].Plan = snapshot.Plan
+				result := fetch(ctx, job.key, job.token)
+				if result.snapshot.Plan != "" {
+					rows[job.index].Plan = result.snapshot.Plan
 				}
-				if snapshot.FiveHour != nil || snapshot.Weekly != nil {
-					value := snapshot
+				if result.snapshot.FiveHour != nil || result.snapshot.Weekly != nil {
+					value := result.snapshot
 					rows[job.index].Usage = &value
 				}
-				if err != nil {
-					code := usage.ShortError(err)
+				if result.detail != nil {
+					rows[job.index].detail = result.detail
+				}
+				if result.err != nil {
+					code := usage.ShortError(result.err)
 					rows[job.index].UsageError = code
 					mu.Lock()
 					failures[code]++

@@ -28,6 +28,7 @@ type App struct {
 	Storage     *agy.Storage
 	Usage       usage.Provider
 	UsageDetail usage.DetailProvider
+	UsageFull   usage.FullProvider
 	Now         func() time.Time
 	TTY         bool
 	OutTTY      bool
@@ -58,6 +59,7 @@ func New() (*App, error) {
 		Storage:     storage,
 		Usage:       usage.NewCache(usageClient),
 		UsageDetail: usageClient,
+		UsageFull:   usage.NewFullCache(usageClient),
 		Now:         time.Now,
 		TTY:         term.IsTerminal(int(os.Stdin.Fd())),
 		OutTTY:      term.IsTerminal(int(os.Stdout.Fd())),

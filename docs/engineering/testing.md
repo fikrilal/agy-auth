@@ -10,8 +10,8 @@ The test strategy is simple: behavior is tested at the lowest layer that proves 
 | Storage | `internal/agy/storage_test.go` | file backend, permissions, atomic writes, corrupt input |
 | Registry | `internal/registry/registry_test.go` | upsert, dedupe, aliases, queries, permissions |
 | OAuth | `internal/oauth/oauth_test.go` | PKCE, auth URL, code normalization, token exchange, refresh, discovery |
-| Usage | `internal/usage/usage_test.go` | request shape, project/User-Agent, token refresh, summary/detail parsing, cache/stale fallback |
-| CLI behavior | `internal/cli/cli_test.go` | lifecycle, help parity, JSON output, usage columns, `usage`, live interval, auto-switch selection |
+| Usage | `internal/usage/usage_test.go` | request shape, project/User-Agent, token refresh, summary/detail/full parsing, cache/stale fallback |
+| CLI behavior | `internal/cli/cli_test.go` | lifecycle, help parity, JSON output, usage columns, `usage --all`, live interval, model-aware auto-switch |
 | Contracts | `harness/fixtures` + `harness contracts` | independent credential/registry shapes |
 | Keyring | `TestKeyringRoundTrip` (opt-in) | real Secret Service round-trip with a throwaway service |
 | TUI/PTY | manual or focused PTY tests | interactive picker behavior and terminal hygiene |

@@ -16,8 +16,8 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 - Candidate picker for ambiguous queries in a terminal.
 - Width-aware tables with active-first numbering and same-email grouping.
 - Plan and shared 5-hour/weekly quota columns from the Antigravity Code Assist quota API, with a 60-second cache (or the live interval) and non-fatal errors.
-- Per-model quota details with `agy-auth usage`, including Gemini buckets that the shared summary does not expose.
-- Live views for list, switch, and remove with viewport paging and a configurable 5–3600 second refresh; `switch --live` can move away from an exhausted active account.
+- Per-model quota details with `agy-auth usage`, including Gemini buckets that the shared summary does not expose; `usage --all` compares every stored account.
+- Live views for list, switch, and remove with viewport paging and a configurable 5–3600 second refresh; `switch --live` can move away from an exhausted shared window or model bucket.
 - Skip quota lookups with `list --no-usage`; set the live cadence with `config live --interval`.
 - Add the account that is currently signed in (`add`).
 - Add another account through Google OAuth with PKCE (`login`) without touching the current credential first.
@@ -114,7 +114,7 @@ After switching, restart `agy`. An already-running `agy` process keeps the old c
 | `agy-auth alias list` | List aliases |
 | `agy-auth current` | Print the live agy account |
 | `agy-auth status` | Show storage paths, token expiry, and keyring/file health |
-| `agy-auth usage [<query>]` | Show per-model quota details |
+| `agy-auth usage [<query>] [--all]` | Show or compare per-model quota details |
 | `agy-auth config live [--interval <seconds>]` | Show or set the live refresh interval |
 | `agy-auth import <file-or-dir> [--alias <alias>] [--activate]` | Import credential JSON with per-file reporting |
 | `agy-auth import --purge` | Rebuild `registry.json` from stored account snapshots |
@@ -171,11 +171,11 @@ Queries resolve in this order: row number, exact account ID, exact alias, exact 
 
 Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns.
 
-`list --live`, `switch --live`, and `remove --live` open an interactive view with a 1 Hz repaint and a configurable 5–3600 second credential/registry/quota refresh (default 60). `switch --live` switches on Enter and stays open; `remove --live` uses Space to check rows and Enter to remove them. `switch --live` also auto-switches when the active account is at 0% on a fresh 5-hour or weekly window, choosing the healthy stored account with the earliest reset. `--live` requires a terminal and cannot be combined with `--json`.
+`list --live`, `switch --live`, and `remove --live` open an interactive view with a 1 Hz repaint and a configurable 5–3600 second credential/registry/quota refresh (default 60). `switch --live` switches on Enter and stays open; `remove --live` uses Space to check rows and Enter to remove them. `switch --live` also auto-switches when the active account is at 0% on a fresh 5-hour/weekly window or any fresh model bucket, choosing the healthy stored account with the earliest reset. `--live` requires a terminal and cannot be combined with `--json`.
 
 `list` fetches the current plan and shared quota from the Antigravity Code Assist backend. The quota source uses the project ID cached by agy, an `antigravity` User-Agent, and the account's access token; expired access tokens are refreshed in memory through the same OAuth client used by `login`. Results are cached for 60 seconds (or the live interval while a live view is running). Quota failures are non-fatal: the table shows `-` (or cached values marked `*`) and JSON rows carry `usage_error`. Use `list --no-usage` to skip the lookup.
 
-`agy-auth usage` is the per-model view: it uses `retrieveUserQuota` for the live account, the active stored account, or one query-selected account. It shows each model's remaining percentage and reset time, including Gemini buckets that the shared summary omits. `config live --interval` stores the live cadence in `registry.json`; `import --purge` preserves it.
+`agy-auth usage` is the per-model view: it uses `retrieveUserQuota` for the live account, the active stored account, or one query-selected account. It shows each model's remaining percentage and reset time, including Gemini buckets that the shared summary omits. `usage --all` compares all stored accounts by plan, shared windows, lowest model headroom, model, and reset; the full result is cached for the live interval. `config live --interval` stores the live cadence in `registry.json`; `import --purge` preserves it.
 
 `remove` resolves and deduplicates every selector before deleting anything. If a later selector fails, no account is removed.
 
@@ -275,7 +275,7 @@ Usage and operation errors use the same envelope:
 
 `plan` and `usage` are omitted when quota data is unavailable. `usage_error` carries a short stable code (`missing_auth`, `auth`, `forbidden`, `unsupported`, `timeout`, `network`, `invalid_response`, `refresh_failed`, or `http_<status>`); `usage.stale: true` marks cached values retained after a failed refresh.
 
-`usage --json` returns `account`, `email`, `plan`, `updated_at`, and a `buckets` array with `model_id`, `remaining_percent`, `resets_at`, and `token_type`. `config live --json` returns `live_interval_seconds`.
+`usage --json` returns `account`, `email`, `plan`, `updated_at`, and a `buckets` array with `model_id`, `remaining_percent`, `resets_at`, and `token_type`. `usage --all --json` returns an `accounts` array with the same fields plus `usage`, `lowest`, and `usage_error`. `config live --json` returns `live_interval_seconds`.
 
 Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `backup_error`, `registry_error`, `state_uncertain`, `oauth_error`, `quota_error`, `import_failed`, `invalid_credential`, `export_failed`, `clean_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
 

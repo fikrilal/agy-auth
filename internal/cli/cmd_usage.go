@@ -13,11 +13,18 @@ import (
 
 func (a *App) cmdUsage(args []string) int {
 	fs := a.newFlagSet("usage")
+	all := fs.Bool("all", false, "show every stored account")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
 	if fs.NArg() > 1 {
 		return a.usageFor("usage", "usage accepts at most one query")
+	}
+	if *all && fs.NArg() > 0 {
+		return a.usageFor("usage", "usage --all does not take a query")
+	}
+	if *all {
+		return a.cmdUsageAll()
 	}
 
 	reg, err := a.Store.Load()
@@ -73,6 +80,95 @@ func (a *App) cmdUsage(args []string) int {
 		}})
 	}
 	a.renderTable(a.Out, a.tableWidth(), columns, rows, "\n")
+	return 0
+}
+
+type usageAllRow struct {
+	accountRow
+	Buckets []usage.Model `json:"buckets,omitempty"`
+	Lowest  *usage.Model  `json:"lowest,omitempty"`
+}
+
+func (a *App) cmdUsageAll() int {
+	if a.UsageFull == nil {
+		return a.failCode("quota_error", "Run `agy-auth list` for the shared quota summary.", "quota detail provider is unavailable")
+	}
+	reg, err := a.Store.Load()
+	if err != nil {
+		return a.registryFailure(err, "could not read the account registry")
+	}
+	if len(reg.Accounts) == 0 {
+		return a.failCode("account_not_found", "Run `agy-auth add` or `agy-auth login` first.", "no stored accounts")
+	}
+	rows := a.pickerRows(reg.Accounts, reg.Active, accountNumbers(reg))
+	failures := a.enrichUsageFull(rows)
+	for i := range rows {
+		if rows[i].token == nil && rows[i].UsageError == "" {
+			rows[i].UsageError = "missing_auth"
+			if failures == nil {
+				failures = map[string]int{}
+			}
+			failures["missing_auth"]++
+		}
+	}
+	if !a.JSON {
+		a.warnUsageFailures(failures)
+	}
+
+	if a.JSON {
+		payload := make([]usageAllRow, 0, len(rows))
+		for _, row := range rows {
+			item := usageAllRow{accountRow: row}
+			if row.detail != nil {
+				item.Buckets = row.detail.Buckets
+				item.Lowest = row.detail.Lowest()
+			}
+			payload = append(payload, item)
+		}
+		if err := a.emitJSON(map[string]any{"accounts": payload}); err != nil {
+			return a.failCode("output_error", "", "could not write JSON output")
+		}
+		return 0
+	}
+
+	columns := []tableColumn{
+		{Header: "#", Min: 2, Max: 2, Priority: 0, Right: true, Required: true},
+		{Header: "ACCOUNT", Min: 12, Max: 40, Priority: 1, Required: true, Flex: true},
+		{Header: "PLAN", Min: 4, Max: 8, Priority: 2},
+		{Header: "5H", Min: 4, Max: 5, Priority: 3, Right: true},
+		{Header: "WEEKLY", Min: 6, Max: 10, Priority: 4, Right: true},
+		{Header: "LOWEST", Min: 6, Max: 6, Priority: 5, Right: true},
+		{Header: "MODEL", Min: 12, Max: 32, Priority: 6},
+		{Header: "RESETS", Min: 16, Max: 16, Priority: 7},
+	}
+	tableRows := make([]tableRow, 0, len(rows))
+	for _, row := range rows {
+		label := row.displayName()
+		if row.Active {
+			label = "* " + label
+		}
+		lowest := "-"
+		model := "-"
+		reset := "-"
+		if row.detail != nil {
+			if value := row.detail.Lowest(); value != nil {
+				lowest = a.quotaPercent(value.RemainingPercent, row.detail.Stale)
+				model = value.ModelID
+				reset = formatQuotaReset(value.ResetsAt)
+			}
+		}
+		tableRows = append(tableRows, tableRow{Cells: []string{
+			fmt.Sprintf("%02d", row.Number),
+			label,
+			a.planCell(row),
+			a.usageCell(row, false),
+			a.usageCell(row, true),
+			lowest,
+			model,
+			reset,
+		}})
+	}
+	a.renderTable(a.Out, a.tableWidth(), columns, tableRows, "\n")
 	return 0
 }
 

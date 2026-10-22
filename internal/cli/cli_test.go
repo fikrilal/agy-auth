@@ -2091,6 +2091,28 @@ func TestAutoSwitchCandidate(t *testing.T) {
 	}
 }
 
+func TestAutoSwitchCandidateUsesModelDetail(t *testing.T) {
+	reset := testNow.Add(time.Hour)
+	active := accountRow{
+		ID:     "acct_active",
+		Active: true,
+		Usage:  &usage.Snapshot{FiveHour: &usage.Window{RemainingPercent: 100}, Weekly: &usage.Window{RemainingPercent: 100}},
+		detail: &usage.Detail{Buckets: []usage.Model{{ModelID: "gemini-2.5-pro", RemainingPercent: 0, ResetsAt: &reset}}},
+	}
+	candidate := accountRow{
+		ID:     "acct_candidate",
+		Usage:  &usage.Snapshot{FiveHour: &usage.Window{RemainingPercent: 100}, Weekly: &usage.Window{RemainingPercent: 100}},
+		detail: &usage.Detail{Buckets: []usage.Model{{ModelID: "gemini-2.5-pro", RemainingPercent: 90, ResetsAt: &reset}}},
+	}
+	if got := autoSwitchCandidate([]accountRow{active, candidate}); got == nil || got.ID != "acct_candidate" {
+		t.Errorf("candidate = %+v", got)
+	}
+	active.detail.Stale = true
+	if got := autoSwitchCandidate([]accountRow{active, candidate}); got != nil {
+		t.Errorf("stale detail should be ignored: %+v", got)
+	}
+}
+
 func TestMaybeAutoSwitch(t *testing.T) {
 	env := newTestEnv(t, true)
 	app, _, errOut := env.app("")
@@ -2158,6 +2180,152 @@ func usageDetail() usage.Detail {
 			{ModelID: "claude-opus-4-6-thinking", RemainingPercent: 100, ResetsAt: &reset, TokenType: "WTUS"},
 		},
 		UpdatedAt: testNow,
+	}
+}
+
+type testFullProvider struct {
+	mu    sync.Mutex
+	full  usage.Full
+	err   error
+	calls int
+}
+
+func (p *testFullProvider) FetchFull(context.Context, string, *agy.TokenFile) (usage.Full, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	return p.full, p.err
+}
+
+func (p *testFullProvider) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+func usageFull() usage.Full {
+	snapshot := usageSnapshot()
+	return usage.Full{
+		Snapshot: snapshot,
+		Detail: usage.Detail{
+			Plan: "Pro",
+			Buckets: []usage.Model{
+				{ModelID: "gemini-2.5-pro", RemainingPercent: 95, ResetsAt: snapshot.FiveHour.ResetsAt},
+				{ModelID: "claude-opus-4-6-thinking", RemainingPercent: 100, ResetsAt: snapshot.Weekly.ResetsAt},
+			},
+			UpdatedAt: testNow,
+		},
+	}
+}
+
+func TestUsageCommandAll(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	provider := &testFullProvider{full: usageFull()}
+	app, out, errOut := env.app("")
+	app.Width = 140
+	app.UsageFull = provider
+	if code := app.Run([]string{"usage", "--all"}); code != 0 {
+		t.Fatalf("usage --all exit = %d, stderr = %s", code, errOut)
+	}
+	for _, want := range []string{"ACCOUNT", "PLAN", "LOWEST", "MODEL", "RESETS", "first", "second", "95%"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("usage --all output missing %q: %q", want, out.String())
+		}
+	}
+	if provider.callCount() != 2 {
+		t.Errorf("provider calls = %d", provider.callCount())
+	}
+
+	provider = &testFullProvider{full: usageFull()}
+	app, out, errOut = env.app("")
+	app.UsageFull = provider
+	if code := app.Run([]string{"usage", "--all", "--json"}); code != 0 {
+		t.Fatalf("usage --all json exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var payload struct {
+		Accounts []struct {
+			Email      string          `json:"email"`
+			Plan       string          `json:"plan"`
+			Usage      *usage.Snapshot `json:"usage"`
+			Buckets    []usage.Model   `json:"buckets"`
+			Lowest     *usage.Model    `json:"lowest"`
+			UsageError string          `json:"usage_error"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Accounts) != 2 {
+		t.Fatalf("accounts = %+v", payload.Accounts)
+	}
+	first := payload.Accounts[0]
+	if first.Email != "user@example.com" || first.Plan != "Pro" || first.Usage == nil || len(first.Buckets) != 2 {
+		t.Errorf("first account = %+v", first)
+	}
+	if first.Lowest == nil || first.Lowest.RemainingPercent != 95 {
+		t.Errorf("lowest = %+v", first.Lowest)
+	}
+}
+
+func TestUsageCommandAllValidation(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.UsageFull = &testFullProvider{full: usageFull()}
+	if code := app.Run([]string{"usage", "--all", "--json"}); code != 1 {
+		t.Fatalf("usage --all exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "account_not_found" {
+		t.Errorf("error = %+v", envelope.Error)
+	}
+
+	app, out, _ = env.app("")
+	if code := app.Run([]string{"usage", "work", "--all", "--json"}); code != 2 {
+		t.Fatalf("usage --all query exit = %d", code)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "usage" {
+		t.Errorf("error = %+v", envelope.Error)
+	}
+}
+
+func TestUsageCommandAllFetchFailure(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	app, _, errOut = env.app("")
+	app.UsageFull = &testFullProvider{err: usage.ErrForbidden}
+	if code := app.Run([]string{"usage", "--all"}); code != 0 {
+		t.Fatalf("usage --all exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(errOut.String(), "forbidden") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+	app, out, _ := env.app("")
+	app.UsageFull = &testFullProvider{err: usage.ErrForbidden}
+	if code := app.Run([]string{"usage", "--all", "--json"}); code != 0 {
+		t.Fatalf("usage --all json exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var payload struct {
+		Accounts []struct {
+			UsageError string `json:"usage_error"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Accounts) != 1 || payload.Accounts[0].UsageError != "forbidden" {
+		t.Errorf("accounts = %+v", payload.Accounts)
 	}
 }
 

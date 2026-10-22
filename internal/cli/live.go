@@ -304,7 +304,7 @@ func (a *App) loadLiveRows(mode liveMode, withUsage bool) ([]accountRow, string,
 		}
 	}
 	if withUsage {
-		a.enrichUsage(rows)
+		a.enrichUsageFull(rows)
 	}
 	return rows, source, nil
 }
@@ -329,7 +329,7 @@ func (a *App) maybeAutoSwitch(state *liveState, mode liveMode) string {
 		return ""
 	}
 	active := state.activeRow()
-	if active == nil || active.ID == "" || active.Usage == nil || active.Usage.Stale || !quotaExhausted(active) {
+	if active == nil || active.ID == "" || !quotaDataFresh(active) || !quotaExhausted(active) {
 		return ""
 	}
 	state.autoSwitched = true
@@ -353,7 +353,7 @@ func autoSwitchCandidate(rows []accountRow) *accountRow {
 			break
 		}
 	}
-	if active == nil || active.ID == "" || active.Usage == nil || active.Usage.Stale || !quotaExhausted(active) {
+	if active == nil || active.ID == "" || !quotaDataFresh(active) || !quotaExhausted(active) {
 		return nil
 	}
 
@@ -361,7 +361,7 @@ func autoSwitchCandidate(rows []accountRow) *accountRow {
 	var bestReset time.Time
 	for i := range rows {
 		row := &rows[i]
-		if row.ID == "" || row.ID == active.ID || row.Usage == nil || row.Usage.Stale || !quotaAvailable(row) {
+		if row.ID == "" || row.ID == active.ID || !quotaAvailable(row) {
 			continue
 		}
 		reset := quotaNextReset(row)
@@ -373,40 +373,71 @@ func autoSwitchCandidate(rows []accountRow) *accountRow {
 	return best
 }
 
-func quotaExhausted(row *accountRow) bool {
-	if row == nil || row.Usage == nil {
+func quotaDataFresh(row *accountRow) bool {
+	if row == nil {
 		return false
 	}
-	if row.Usage.FiveHour != nil && row.Usage.FiveHour.RemainingPercent <= 0 {
-		return true
+	return (row.Usage != nil && !row.Usage.Stale) || (row.detail != nil && !row.detail.Stale)
+}
+
+func quotaExhausted(row *accountRow) bool {
+	if row == nil {
+		return false
 	}
-	return row.Usage.Weekly != nil && row.Usage.Weekly.RemainingPercent <= 0
+	if row.Usage != nil && !row.Usage.Stale {
+		if row.Usage.FiveHour != nil && row.Usage.FiveHour.RemainingPercent <= 0 {
+			return true
+		}
+		if row.Usage.Weekly != nil && row.Usage.Weekly.RemainingPercent <= 0 {
+			return true
+		}
+	}
+	return row.detail != nil && !row.detail.Stale && row.detail.Exhausted()
 }
 
 func quotaAvailable(row *accountRow) bool {
-	if row == nil || row.Usage == nil {
+	if row == nil {
 		return false
 	}
-	if row.Usage.FiveHour == nil && row.Usage.Weekly == nil {
-		return false
+	hasData := false
+	if row.Usage != nil && !row.Usage.Stale {
+		hasData = true
+		if row.Usage.FiveHour != nil && row.Usage.FiveHour.RemainingPercent <= 0 {
+			return false
+		}
+		if row.Usage.Weekly != nil && row.Usage.Weekly.RemainingPercent <= 0 {
+			return false
+		}
 	}
-	if row.Usage.FiveHour != nil && row.Usage.FiveHour.RemainingPercent <= 0 {
-		return false
+	if row.detail != nil && !row.detail.Stale {
+		hasData = true
+		if row.detail.Exhausted() {
+			return false
+		}
 	}
-	return row.Usage.Weekly == nil || row.Usage.Weekly.RemainingPercent > 0
+	return hasData
 }
 
 func quotaNextReset(row *accountRow) time.Time {
-	if row == nil || row.Usage == nil {
+	if row == nil {
 		return time.Time{}
 	}
 	var next time.Time
-	for _, window := range []*usage.Window{row.Usage.FiveHour, row.Usage.Weekly} {
-		if window == nil || window.ResetsAt == nil {
-			continue
+	if row.Usage != nil && !row.Usage.Stale {
+		for _, window := range []*usage.Window{row.Usage.FiveHour, row.Usage.Weekly} {
+			if window == nil || window.ResetsAt == nil {
+				continue
+			}
+			if next.IsZero() || window.ResetsAt.Before(next) {
+				next = *window.ResetsAt
+			}
 		}
-		if next.IsZero() || window.ResetsAt.Before(next) {
-			next = *window.ResetsAt
+	}
+	if row.detail != nil && !row.detail.Stale {
+		if lowest := row.detail.Lowest(); lowest != nil && lowest.ResetsAt != nil {
+			if next.IsZero() || lowest.ResetsAt.Before(next) {
+				next = *lowest.ResetsAt
+			}
 		}
 	}
 	return next
@@ -432,6 +463,9 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 
 	interval := a.liveInterval()
 	if cache, ok := a.Usage.(*usage.Cache); ok {
+		cache.SetTTL(interval)
+	}
+	if cache, ok := a.UsageFull.(*usage.FullCache); ok {
 		cache.SetTTL(interval)
 	}
 	state := &liveState{checked: map[string]bool{}, interval: interval}
