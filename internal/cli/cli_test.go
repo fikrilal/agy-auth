@@ -863,6 +863,341 @@ func TestCleanJSON(t *testing.T) {
 	}
 }
 
+func writeTestToken(t *testing.T, dir, name, email, subject, refresh string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, makeCLIToken(t, email, subject, refresh), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestImportReportSkipsInvalidFiles(t *testing.T) {
+	env := newTestEnv(t, false)
+	dir := filepath.Join(env.dir, "imports")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestToken(t, dir, "a.json", "a@example.com", "subject-a", "refresh-a")
+	writeTestToken(t, dir, "b.json", "b@example.com", "subject-b", "refresh-b")
+	badPath := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(badPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"import", dir, "--json"}); code != 0 {
+		t.Fatalf("import exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Command != "import" {
+		t.Fatalf("command = %q", envelope.Command)
+	}
+	var report importReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.Imported != 2 || report.Summary.Updated != 0 || report.Summary.Skipped != 1 || report.Summary.Total != 3 {
+		t.Fatalf("summary = %+v", report.Summary)
+	}
+	if len(report.Files) != 3 || report.Files[2].Outcome != outcomeSkipped || report.Files[2].Reason != "invalid credential" {
+		t.Errorf("files = %+v", report.Files)
+	}
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 2 {
+		t.Errorf("accounts = %d, want 2", len(reg.Accounts))
+	}
+}
+
+func TestImportReportHuman(t *testing.T) {
+	env := newTestEnv(t, false)
+	dir := filepath.Join(env.dir, "imports-human")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestToken(t, dir, "good.json", "good@example.com", "subject-good", "refresh-good")
+	badPath := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(badPath, []byte("broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"import", dir}); code != 0 {
+		t.Fatalf("import exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "imported  good.json") {
+		t.Errorf("stdout = %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Import Summary: 1 imported, 0 updated, 1 skipped") {
+		t.Errorf("stdout summary = %q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "skipped  bad.json: invalid credential") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestImportSingleInvalidFails(t *testing.T) {
+	env := newTestEnv(t, false)
+	badPath := filepath.Join(env.dir, "bad.json")
+	if err := os.WriteFile(badPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, out, _ := env.app("")
+	if code := app.Run([]string{"import", badPath, "--json"}); code != 1 {
+		t.Fatalf("import exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var report importReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.Imported != 0 || report.Summary.Skipped != 1 || report.Summary.Total != 1 {
+		t.Errorf("summary = %+v", report.Summary)
+	}
+	if len(report.Files) != 1 || report.Files[0].Reason != "invalid credential" {
+		t.Errorf("files = %+v", report.Files)
+	}
+}
+
+func TestImportActivate(t *testing.T) {
+	env := newTestEnv(t, false)
+	path := writeTestToken(t, env.dir, "new.json", "new@example.com", "subject-new", "refresh-new")
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"import", path, "--activate", "--json"}); code != 0 {
+		t.Fatalf("import exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var report importReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Activated || report.Summary.Imported != 1 {
+		t.Errorf("report = %+v", report)
+	}
+	if _, err := os.Stat(env.tokenPath); err != nil {
+		t.Errorf("live credential was not written: %v", err)
+	}
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Active != report.Imported[0].ID {
+		t.Errorf("active = %q, want %q", reg.Active, report.Imported[0].ID)
+	}
+}
+
+func TestPurgeRebuildsRegistry(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"alias", "set", "second", "work"}); code != 0 {
+		t.Fatalf("alias exit = %d, stderr = %s", code, errOut)
+	}
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"switch", "second", "--json"}); code != 0 {
+		t.Fatalf("switch exit = %d, stderr = %s", code, errOut)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"import", "--purge", "--json"}); code != 0 {
+		t.Fatalf("purge exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var report importReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Rebuilt || report.Summary.Imported != 2 || report.Summary.Skipped != 0 {
+		t.Fatalf("report = %+v", report)
+	}
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 2 {
+		t.Fatalf("accounts = %d", len(reg.Accounts))
+	}
+	first := reg.Resolve("first")
+	second := reg.Resolve("work")
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatalf("aliases not carried: first=%v second=%v", first, second)
+	}
+	if reg.Active != second[0].ID || reg.Previous != first[0].ID {
+		t.Errorf("active = %q, previous = %q", reg.Active, reg.Previous)
+	}
+}
+
+func TestPurgeWithoutRegistry(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+	if err := os.Remove(filepath.Join(env.storeDir, "registry.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"import", "--purge", "--json"}); code != 0 {
+		t.Fatalf("purge exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var report importReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.Imported != 2 || report.Active == "" {
+		t.Fatalf("report = %+v", report)
+	}
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 2 || reg.Active == "" {
+		t.Errorf("registry = %+v", reg)
+	}
+}
+
+func TestExportReport(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	dir := filepath.Join(env.dir, "export-report")
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"export", "--dir", dir, "--json"}); code != 0 {
+		t.Fatalf("export exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var report exportReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.Exported != 2 || report.Summary.Skipped != 0 || report.Summary.Total != 2 {
+		t.Fatalf("summary = %+v", report.Summary)
+	}
+	if len(report.Exported) != 2 || len(report.Files) != 2 {
+		t.Errorf("report = %+v", report)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("exported files = %d", len(entries))
+	}
+	for _, event := range report.Files {
+		if event.Outcome != outcomeExported || !strings.HasSuffix(event.Path, ".json") {
+			t.Errorf("event = %+v", event)
+		}
+	}
+}
+
+func TestExportSkipsUnreadableCredential(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := reg.Resolve("second")
+	if len(second) != 1 {
+		t.Fatalf("second matches = %d", len(second))
+	}
+	if err := os.Remove(filepath.Join(env.storeDir, "accounts", second[0].ID+".json")); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := filepath.Join(env.dir, "export-skip")
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"export", "--dir", dir, "--json"}); code != 0 {
+		t.Fatalf("export exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var report exportReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.Exported != 1 || report.Summary.Skipped != 1 {
+		t.Errorf("summary = %+v", report.Summary)
+	}
+	for _, event := range report.Files {
+		if event.Outcome == outcomeSkipped && event.Reason != "credential unreadable" {
+			t.Errorf("skipped event = %+v", event)
+		}
+	}
+
+	first := reg.Resolve("first")
+	if len(first) != 1 {
+		t.Fatalf("first matches = %d", len(first))
+	}
+	if err := os.Remove(filepath.Join(env.storeDir, "accounts", first[0].ID+".json")); err != nil {
+		t.Fatal(err)
+	}
+	app, out, _ = env.app("")
+	if code := app.Run([]string{"export", "--dir", filepath.Join(env.dir, "export-skip-all"), "--json"}); code != 1 {
+		t.Fatalf("all-skipped export exit = %d", code)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	var all exportReport
+	if err := json.Unmarshal(envelope.Data, &all); err != nil {
+		t.Fatal(err)
+	}
+	if all.Summary.Exported != 0 || all.Summary.Skipped != 2 {
+		t.Errorf("all-skipped summary = %+v", all.Summary)
+	}
+}
+
+func TestPurgeMalformedRegistry(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+	if err := os.WriteFile(filepath.Join(env.storeDir, "registry.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"import", "--purge", "--json"}); code != 0 {
+		t.Fatalf("purge exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var report importReport
+	if err := json.Unmarshal(envelope.Data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.Imported != 2 {
+		t.Errorf("summary = %+v", report.Summary)
+	}
+	if !strings.Contains(errOut.String(), "rebuilding without aliases") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 2 {
+		t.Errorf("accounts = %d", len(reg.Accounts))
+	}
+}
+
 func TestJSONInteractiveGuards(t *testing.T) {
 	env := newTestEnv(t, false)
 	cases := []struct {

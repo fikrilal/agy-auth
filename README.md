@@ -109,8 +109,9 @@ After switching, restart `agy`. An already-running `agy` process keeps the old c
 | `agy-auth alias list` | List aliases |
 | `agy-auth current` | Print the live agy account |
 | `agy-auth status` | Show storage paths, token expiry, and keyring/file health |
-| `agy-auth import <file-or-dir> [--alias <alias>] [--activate]` | Import credential JSON |
-| `agy-auth export [--dir <directory>] [<query>...]` | Export credential JSON |
+| `agy-auth import <file-or-dir> [--alias <alias>] [--activate]` | Import credential JSON with per-file reporting |
+| `agy-auth import --purge` | Rebuild `registry.json` from stored account snapshots |
+| `agy-auth export [--dir <directory>] [<query>...]` | Export credential JSON with a summary |
 | `agy-auth path` | Print storage locations |
 | `agy-auth clean [--dry-run]` | Prune managed backups and orphan snapshots |
 | `agy-auth version` | Print the version |
@@ -162,6 +163,8 @@ Before replacing or deleting the live credential, `agy-auth` snapshots the curre
 Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
 
 `remove` resolves and deduplicates every selector before deleting anything. If a later selector fails, no account is removed.
+
+`import` reports each file as imported, updated, or skipped; skipped rows go to stderr, and every run ends with a summary. `--purge` rebuilds `registry.json` from `accounts/*.json`, carries aliases and active/previous where possible, and uses the live credential to choose the active account when it matches. `export` prints per-file paths plus a summary.
 
 See [docs/internals.md](docs/internals.md) for the exact storage and OAuth details.
 
@@ -234,6 +237,8 @@ Usage and operation errors use the same envelope:
 Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `backup_error`, `registry_error`, `state_uncertain`, `oauth_error`, `import_failed`, `invalid_credential`, `export_failed`, `clean_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
 
 `ambiguous_query` errors include a `candidates` array with account IDs, emails, and aliases. Hints are included when there is a concrete recovery step.
+
+`import` and `export` JSON responses include a `files` array with per-file outcomes and a `summary` object. `import` also keeps the `imported` account array, and `export` keeps the `exported` array.
 
 ## Exit codes
 

@@ -132,18 +132,24 @@ var commandSpecs = []CommandSpec{
 	{
 		Name:     "import",
 		Group:    "Import and export",
-		Synopsis: "import <path>",
-		Summary:  "Import credential JSON file(s)",
-		Usage:    []string{"agy-auth import <file-or-directory> [--alias <alias>] [--activate]"},
+		Synopsis: "import <path> | --purge",
+		Summary:  "Import credential JSON or rebuild the registry",
+		Usage: []string{
+			"agy-auth import <file-or-directory> [--alias <alias>] [--activate]",
+			"agy-auth import --purge",
+		},
 		Description: "Import agy credential JSON files (the same format as\n" +
-			"~/.gemini/antigravity-cli/antigravity-oauth-token). --alias is only valid when\n" +
-			"importing a single file. Imported accounts do not become active unless\n" +
-			"--activate is passed (the first account is always selected).",
+			"~/.gemini/antigravity-cli/antigravity-oauth-token). Invalid files are skipped\n" +
+			"and reported. --alias is only valid for a single file. Imported accounts do not\n" +
+			"become active unless --activate is passed (the first account is always selected).\n" +
+			"--purge rebuilds registry.json from stored account snapshots, preserving aliases\n" +
+			"and active/previous where possible.",
 		Options: []OptionSpec{
 			{Flag: "--alias <alias>", Description: "Alias for a single imported file"},
 			{Flag: "--activate", Description: "Activate a single imported file"},
+			{Flag: "--purge", Description: "Rebuild the registry from stored account snapshots"},
 		},
-		Examples: []string{"agy-auth import ./token.json --alias work"},
+		Examples: []string{"agy-auth import ./token.json --alias work", "agy-auth import --purge"},
 	},
 	{
 		Name:     "export",
@@ -152,7 +158,8 @@ var commandSpecs = []CommandSpec{
 		Summary:  "Export stored credential JSON files",
 		Usage:    []string{"agy-auth export [--dir <directory>] [<query>...]"},
 		Description: "Write stored credential JSON files to a directory (default: current directory)\n" +
-			"with 0600 permissions. Export every account when no query is given.",
+			"with 0600 permissions. Export every account when no query is given. Per-file\n" +
+			"results and a summary are printed.",
 		Options: []OptionSpec{
 			{Flag: "--dir <directory>", Description: "Destination directory (default: current directory)"},
 		},

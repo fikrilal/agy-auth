@@ -124,15 +124,23 @@ go-keyring's Linux `Set` uses Secret Service `CreateItem(..., replace=true)` wit
 
 `clean` removes managed backups beyond retention and snapshot files not referenced by `registry.json`. It only considers backup names matching `active-*.json`/`registry-*.json` with the managed timestamp form and snapshot names with valid account IDs; unknown files are left alone. If `registry.json` is missing, snapshots are preserved so the registry can be rebuilt from them. `--dry-run` reports the same set without deleting anything.
 
+## Import and export
+
+`import` reports each file as imported, updated, or skipped. Directory imports continue after invalid files; a single invalid file exits nonzero. Success rows are written to stdout, skipped rows to stderr, and the run ends with a summary.
+
+`import --purge` rebuilds `registry.json` from `accounts/*.json`. It carries aliases and `added_at`/`last_used_at` from the previous registry by account ID or subject, prefers a live credential match for `active`, and falls back to the previous active account or the first snapshot. Invalid snapshots are skipped and reported.
+
+`export` writes deterministic `<name>-<shortID>.json` files with `0600` permissions and reports per-file results plus a summary.
+
 ## Recovering the registry
 
 The account snapshots are authoritative. If `registry.json` is lost or corrupted, rebuild it from the snapshots:
 
 ```shell
-agy-auth import ~/.config/agy-auth/accounts
+agy-auth import --purge
 ```
 
-This recreates entries from the raw credentials (email and subject come from the ID token). Aliases, `active`, `previous`, `added_at`, and `last_used_at` are not stored in the snapshots, so they are lost unless you back up `registry.json`. Managed backups under `backups/` can restore the previous registry or live credential if the change was recent.
+This recreates entries from the raw credentials (email and subject come from the ID token) and carries aliases and active/previous where they can be matched. Managed backups under `backups/` can restore the previous registry or live credential if the change was recent.
 
 ## OAuth login
 

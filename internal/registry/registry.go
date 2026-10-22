@@ -289,6 +289,27 @@ type UpsertResult struct {
 	Created bool
 }
 
+// AccountFromRaw derives account metadata from a snapshot without touching the
+// registry. It is used when rebuilding the registry from accounts/*.json.
+func AccountFromRaw(raw []byte) (Account, error) {
+	tf, err := agy.ParseTokenFile(raw)
+	if err != nil {
+		return Account{}, err
+	}
+	claims, _ := tf.Claims()
+	fingerprint := tf.Fingerprint()
+	now := time.Now().UTC()
+	return Account{
+		ID:          accountID(claims.Subject, fingerprint),
+		Email:       claims.Email,
+		Subject:     claims.Subject,
+		AuthMethod:  tf.AuthMethod,
+		Fingerprint: fingerprint,
+		AddedAt:     now,
+		LastUsedAt:  now,
+	}, nil
+}
+
 // Upsert adds or refreshes an account from a raw agy credential document.
 // When activate is true the account becomes the active account.
 func (s *Store) Upsert(raw []byte, alias string, activate bool) (UpsertResult, error) {
