@@ -50,13 +50,7 @@ func (a *App) cmdRemove(args []string) int {
 		}
 	default:
 		fmt.Fprintln(a.Out, "Stored accounts:")
-		for i, account := range reg.Accounts {
-			marker := " "
-			if account.ID == reg.Active {
-				marker = "*"
-			}
-			fmt.Fprintf(a.Out, "  %s %02d) %s\n", marker, i+1, account.DisplayName())
-		}
+		a.renderAccountRows(a.pickerRows(reg.Accounts, reg.Active, accountNumbers(reg)), a.now())
 		answer, err := a.readLine("Remove which accounts? (numbers, aliases, emails, or 'all'): ")
 		if err != nil {
 			return a.failCode("input_error", "Try again, or pass selectors on the command line.", "could not read the selection")

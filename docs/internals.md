@@ -95,6 +95,12 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 
 `previous` records the account that was active before the last switch (including `add`, `login`, and `import --activate`). `switch -` uses it; it is cleared when that account is removed, when the registry no longer contains it, or when it equals `active`.
 
+## Display and numbering
+
+`Store.Load` sorts accounts active first, then email ascending, with alias and ID as tiebreaks. This is the order used by `list`, pickers, and numeric queries, so `01` always refers to the same row. Same-email accounts are contiguous: the UI prints a dim email header and indented alias/short-ID children; only the child rows are numbered and selectable.
+
+The non-live table uses `#`, `ACCOUNT`, `EXPIRES`, `METHOD`, and `LAST` columns. It fits the terminal width by truncating the account label and dropping lower-priority columns on narrow terminals. Plan and usage columns are deferred until the quota source is reliable.
+
 ## Backups
 
 Before replacing or deleting the live credential, `internal/agy.Storage` writes the current raw credential to `backups/active-<timestamp>.json`. `registry.Store.Save` writes the previous `registry.json` to `backups/registry-<timestamp>.json` before changing it. Both use `0600` files in a `0700` directory and keep the newest 5 of each kind. Identical backup content is deduplicated. Registry and file writes that do not change bytes only re-harden permissions; credential writes still refresh the keyring.

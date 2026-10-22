@@ -45,7 +45,7 @@ func (a *App) cmdSwitch(args []string) int {
 		}
 		account = selected
 	} else {
-		selected, err := a.chooseAccount(reg.Accounts, reg.Active, "Select an account to activate")
+		selected, err := a.chooseAccount(reg.Accounts, reg.Active, "Select an account to activate", accountNumbers(reg))
 		if errors.Is(err, errCancelled) {
 			fmt.Fprintln(a.Err, "cancelled")
 			return 1

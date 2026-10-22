@@ -30,6 +30,7 @@ type App struct {
 	OutTTY     bool
 	JSON       bool
 	NoColor    bool
+	Width      int
 	Command    string
 	StdinFile  *os.File
 	StdoutFile *os.File

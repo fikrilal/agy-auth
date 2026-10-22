@@ -12,6 +12,8 @@ All notable changes to this project are documented here.
 - `agy-auth clean [--dry-run]` to prune managed backups and orphan snapshots.
 - Per-file import/export reports with `imported`/`updated`/`skipped` outcomes and a summary.
 - `agy-auth import --purge` to rebuild `registry.json` from stored snapshots, carrying aliases and active/previous where possible.
+- Shared active-first/email ordering and `01`-style row numbers across list, pickers, numeric queries, and JSON list output.
+- Width-aware tables that truncate account names and drop lower-priority columns; same-email accounts are grouped under a header with indented, numbered children.
 
 ### Changed
 

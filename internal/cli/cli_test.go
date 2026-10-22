@@ -296,6 +296,9 @@ func TestSwitchAmbiguousPicker(t *testing.T) {
 	if !strings.Contains(out.String(), "Select an account to activate") {
 		t.Errorf("missing picker prompt: %q", out.String())
 	}
+	if !strings.Contains(out.String(), "01") || !strings.Contains(out.String(), "02") {
+		t.Errorf("picker missing shared numbers: %q", out.String())
+	}
 	if !strings.Contains(out.String(), "Switched to second") {
 		t.Errorf("missing switch result: %q", out.String())
 	}
@@ -1198,6 +1201,114 @@ func TestPurgeMalformedRegistry(t *testing.T) {
 	}
 }
 
+func TestListJSONCanonicalOrder(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "aaa@example.com", "subject-aaa", "refresh-aaa", "aaa")
+
+	listEmails := func() []accountRow {
+		t.Helper()
+		app, out, errOut := env.app("")
+		if code := app.Run([]string{"list", "--json"}); code != 0 {
+			t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+		}
+		envelope := decodeTestEnvelope(t, out)
+		var payload struct {
+			Accounts []accountRow `json:"accounts"`
+		}
+		if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload.Accounts
+	}
+
+	accounts := listEmails()
+	if len(accounts) != 2 {
+		t.Fatalf("accounts = %d", len(accounts))
+	}
+	if accounts[0].Email != "user@example.com" || accounts[0].Number != 1 {
+		t.Errorf("first row = %+v", accounts[0])
+	}
+	if accounts[1].Email != "aaa@example.com" || accounts[1].Number != 2 {
+		t.Errorf("second row = %+v", accounts[1])
+	}
+
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"switch", "aaa", "--json"}); code != 0 {
+		t.Fatalf("switch exit = %d, stderr = %s", code, errOut)
+	}
+	accounts = listEmails()
+	if accounts[0].Email != "aaa@example.com" || accounts[0].Number != 1 || !accounts[0].Active {
+		t.Errorf("active first row = %+v", accounts[0])
+	}
+	if accounts[1].Email != "user@example.com" || accounts[1].Number != 2 {
+		t.Errorf("active second row = %+v", accounts[1])
+	}
+}
+
+func TestRenderAccountTableNarrow(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.Width = 34
+	future := testNow.Add(2 * time.Hour)
+	past := testNow.Add(-24 * time.Hour)
+	rows := []accountRow{
+		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "very.long.account.name@example.com", Alias: "long-alias", AuthMethod: "consumer", ExpiresAt: &future, LastUsedAt: &past},
+		{Number: 2, ID: "acct_2", Stored: true, Email: "second@example.com", AuthMethod: "consumer", ExpiresAt: &future, LastUsedAt: &past},
+	}
+	app.renderAccountRows(rows, testNow)
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if visibleWidth(line) > app.Width {
+			t.Errorf("line exceeds width: %q (%d)", line, visibleWidth(line))
+		}
+	}
+	if !strings.Contains(out.String(), "…") {
+		t.Errorf("expected truncated account: %q", out.String())
+	}
+	if strings.Contains(out.String(), "METHOD") || strings.Contains(out.String(), "LAST") {
+		t.Errorf("narrow table kept low-priority columns: %q", out.String())
+	}
+}
+
+func TestRenderAccountTableWide(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.Width = 120
+	future := testNow.Add(2 * time.Hour)
+	past := testNow.Add(-24 * time.Hour)
+	rows := []accountRow{
+		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "very.long.account.name@example.com", Alias: "long-alias", AuthMethod: "consumer", ExpiresAt: &future, LastUsedAt: &past},
+	}
+	app.renderAccountRows(rows, testNow)
+	for _, want := range []string{"EXPIRES", "METHOD", "LAST", "very.long.account.name@example.com"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("wide table missing %q: %q", want, out.String())
+		}
+	}
+}
+
+func TestRenderAccountTableGroupsSameEmail(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.Width = 100
+	rows := []accountRow{
+		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "same@example.com", Alias: "one"},
+		{Number: 2, ID: "acct_2", Stored: true, Email: "same@example.com", Alias: "two"},
+	}
+	app.renderAccountRows(rows, testNow)
+	if !strings.Contains(out.String(), "same@example.com") {
+		t.Errorf("missing group header: %q", out.String())
+	}
+	for _, want := range []string{"  one", "  two", "01", "02"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("grouped table missing %q: %q", want, out.String())
+		}
+	}
+}
+
 func TestJSONInteractiveGuards(t *testing.T) {
 	env := newTestEnv(t, false)
 	cases := []struct {
@@ -1234,7 +1345,7 @@ func TestAmbiguousQueryCandidates(t *testing.T) {
 		{ID: "acct_1", Email: "same@example.com", Alias: "one"},
 		{ID: "acct_2", Email: "same@example.com", Alias: "two"},
 	}
-	if code := app.resolveFailure("same@example.com", matches); code != 1 {
+	if code := app.resolveFailureWithNumbers("same@example.com", matches, map[string]int{"acct_1": 3, "acct_2": 5}); code != 1 {
 		t.Fatalf("exit = %d", code)
 	}
 	envelope := decodeTestEnvelope(t, out)
@@ -1246,6 +1357,9 @@ func TestAmbiguousQueryCandidates(t *testing.T) {
 	}
 	if envelope.Error.Candidates[0].ID != "acct_1" || envelope.Error.Candidates[1].ID != "acct_2" {
 		t.Errorf("candidates = %+v", envelope.Error.Candidates)
+	}
+	if envelope.Error.Candidates[0].Number != 3 || envelope.Error.Candidates[1].Number != 5 {
+		t.Errorf("candidate numbers = %+v", envelope.Error.Candidates)
 	}
 }
 
@@ -1438,9 +1552,10 @@ type testErrorDoc struct {
 }
 
 type testCandidate struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Alias string `json:"alias"`
+	Number int    `json:"number"`
+	ID     string `json:"id"`
+	Email  string `json:"email"`
+	Alias  string `json:"alias"`
 }
 
 func decodeTestEnvelope(t *testing.T, out *bytes.Buffer) testEnvelope {

@@ -125,7 +125,7 @@ func (a *App) cmdList(args []string) int {
 
 	displayRows := storedRows
 	if matched == nil && currentRow != nil {
-		displayRows = append(append([]accountRow{}, storedRows...), *currentRow)
+		displayRows = append([]accountRow{*currentRow}, storedRows...)
 	}
 	if *activeOnly {
 		if currentRow != nil {

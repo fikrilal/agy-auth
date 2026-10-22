@@ -58,7 +58,7 @@ See [Internals](../internals.md) for the full document shapes, registry schema, 
 
 `internal/cli/app.go` owns command dispatch, global flags, and the `App` writers. `cmd/agy-auth/main.go` only wires standard streams and exits. Library packages return errors; only `App` renders user-facing output.
 
-The picker and rendering live in `internal/cli/picker.go`, `render.go`, and `util.go`. Future live/TUI work should keep selection by account ID, width-aware tables, and copy-friendly terminal behavior.
+The picker and rendering live in `internal/cli/picker.go`, `table.go`, `render.go`, and `util.go`. Account rows are ordered by `registry.SortAccounts` during load (active first, then email), and both list and picker share the same 1-based numbers. The width-aware table truncates the account column and drops lower-priority columns; keep future TUI work on the same row model and selection by account ID.
 
 ## Packaging
 

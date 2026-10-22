@@ -130,23 +130,29 @@ func (a *App) cmdAliasList(args []string) int {
 		fmt.Fprintln(a.Out, "No accounts stored.")
 		return 0
 	}
-	for i, account := range reg.Accounts {
-		fmt.Fprintf(a.Out, "%02d  %-40s  %s\n", i+1, account.DisplayName(), valueOr(account.Alias, "-"))
-	}
+	a.renderAccountRows(a.pickerRows(reg.Accounts, reg.Active, accountNumbers(reg)), a.now())
 	return 0
 }
 
 func (a *App) resolveFailure(query string, matches []registry.Account) int {
+	return a.resolveFailureWithNumbers(query, matches, nil)
+}
+
+func (a *App) resolveFailureWithNumbers(query string, matches []registry.Account, numbers map[string]int) int {
 	if len(matches) == 0 {
 		return a.failCode("account_not_found", "Run `agy-auth list` to see stored accounts.", "no account matches %q", query)
 	}
 	candidates := make([]Candidate, 0, len(matches))
 	for _, account := range matches {
-		candidates = append(candidates, Candidate{
+		candidate := Candidate{
 			ID:    account.ID,
 			Email: account.Email,
 			Alias: account.Alias,
-		})
+		}
+		if numbers != nil {
+			candidate.Number = numbers[account.ID]
+		}
+		candidates = append(candidates, candidate)
 	}
 	return a.errorDoc(1, ErrorDoc{
 		Code:       "ambiguous_query",
@@ -160,12 +166,12 @@ func (a *App) resolveOne(reg *registry.Registry, query, title string) (*registry
 	matches := reg.Resolve(query)
 	switch len(matches) {
 	case 0:
-		return nil, a.resolveFailure(query, matches)
+		return nil, a.resolveFailureWithNumbers(query, matches, accountNumbers(reg))
 	case 1:
 		return &matches[0], 0
 	default:
 		if a.TTY && !a.JSON {
-			selected, err := a.chooseAccount(matches, reg.Active, title)
+			selected, err := a.chooseAccount(matches, reg.Active, title, accountNumbers(reg))
 			if errors.Is(err, errCancelled) {
 				fmt.Fprintln(a.Err, "cancelled")
 				return nil, 1
@@ -175,6 +181,6 @@ func (a *App) resolveOne(reg *registry.Registry, query, title string) (*registry
 			}
 			return selected, 0
 		}
-		return nil, a.resolveFailure(query, matches)
+		return nil, a.resolveFailureWithNumbers(query, matches, accountNumbers(reg))
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -126,6 +127,7 @@ func (s *Store) Load() (*Registry, error) {
 	if reg.Previous == reg.Active {
 		reg.Previous = ""
 	}
+	reg.SortAccounts()
 	return &reg, nil
 }
 
@@ -440,6 +442,34 @@ func (r *Registry) ActiveAccount() *Account {
 		}
 	}
 	return nil
+}
+
+// SortAccounts orders accounts the way the CLI numbers and displays them:
+// active first, then email ascending, then alias, then ID. Numeric queries use
+// this same order after Load.
+func (r *Registry) SortAccounts() {
+	sort.SliceStable(r.Accounts, func(i, j int) bool {
+		a, b := r.Accounts[i], r.Accounts[j]
+		aActive := a.ID == r.Active
+		bActive := b.ID == r.Active
+		if aActive != bActive {
+			return aActive
+		}
+		ae, be := strings.ToLower(a.Email), strings.ToLower(b.Email)
+		if ae != be {
+			if ae == "" {
+				return false
+			}
+			if be == "" {
+				return true
+			}
+			return ae < be
+		}
+		if a.Alias != b.Alias {
+			return strings.ToLower(a.Alias) < strings.ToLower(b.Alias)
+		}
+		return a.ID < b.ID
+	})
 }
 
 func (r *Registry) FindByID(id string) *Account {

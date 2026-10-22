@@ -3,10 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 func (a *App) emitJSON(data any) error {
@@ -73,10 +71,65 @@ func (r accountRow) displayName() string {
 	}
 }
 
+func (r accountRow) groupLabel() string {
+	switch {
+	case r.Alias != "":
+		return r.Alias
+	case r.ID != "":
+		return shortID(r.ID)
+	default:
+		return "(unknown)"
+	}
+}
+
+type displayAccountRow struct {
+	Header string
+	Row    *accountRow
+	Index  int
+	Indent bool
+}
+
+func groupDisplayRows(rows []accountRow) []displayAccountRow {
+	result := make([]displayAccountRow, 0, len(rows))
+	for i := 0; i < len(rows); {
+		end := i + 1
+		email := rows[i].Email
+		if email != "" {
+			for end < len(rows) && strings.EqualFold(rows[end].Email, email) {
+				end++
+			}
+		}
+		if end-i > 1 {
+			result = append(result, displayAccountRow{Header: email})
+			for j := i; j < end; j++ {
+				result = append(result, displayAccountRow{Row: &rows[j], Index: j, Indent: true})
+			}
+		} else {
+			result = append(result, displayAccountRow{Row: &rows[i], Index: i})
+		}
+		i = end
+	}
+	return result
+}
+
 func (a *App) renderAccountRows(rows []accountRow, now time.Time) {
-	headers := []string{"#", "", "ACCOUNT", "METHOD", "TOKEN", "ADDED"}
-	table := make([][]string, 0, len(rows))
-	for _, row := range rows {
+	a.renderAccountTable(rows, now, -1, "\n")
+}
+
+func (a *App) renderAccountTable(rows []accountRow, now time.Time, highlight int, newline string) {
+	width := a.tableWidth()
+	displayRows := groupDisplayRows(rows)
+	tableRows := make([]tableRow, 0, len(displayRows))
+	for _, display := range displayRows {
+		if display.Header != "" {
+			header := display.Header
+			if visibleWidth(header) > width {
+				header = truncatePlain(header, width)
+			}
+			tableRows = append(tableRows, tableRow{Group: a.dim(header)})
+			continue
+		}
+		row := *display.Row
 		number := "-"
 		if row.Number > 0 {
 			number = fmt.Sprintf("%02d", row.Number)
@@ -85,9 +138,16 @@ func (a *App) renderAccountRows(rows []accountRow, now time.Time) {
 		if row.Active {
 			marker = a.green("*")
 		}
-		name := row.displayName()
+		account := row.displayName()
+		if display.Indent {
+			account = "  " + row.groupLabel()
+		}
 		if !row.Stored {
-			name += a.dim(" (not stored)")
+			account += " (not stored)"
+		}
+		method := row.AuthMethod
+		if method == "" {
+			method = "-"
 		}
 		expiry := "-"
 		if row.ExpiresAt != nil {
@@ -98,62 +158,20 @@ func (a *App) renderAccountRows(rows []accountRow, now time.Time) {
 				expiry = a.yellow(expiry)
 			}
 		}
-		added := "-"
-		if row.AddedAt != nil {
-			added = row.AddedAt.Format("2006-01-02")
+		last := "-"
+		if row.LastUsedAt != nil {
+			last = row.LastUsedAt.Format("2006-01-02")
 		}
-		method := row.AuthMethod
-		if method == "" {
-			method = "-"
-		}
-		table = append(table, []string{number, marker, name, method, expiry, added})
+		tableRows = append(tableRows, tableRow{
+			Cells:     []string{number, marker, account, expiry, method, last},
+			Highlight: display.Index == highlight,
+		})
 	}
-	writeTable(a.Out, headers, table)
-}
-
-func writeTable(out io.Writer, headers []string, rows [][]string) {
-	widths := make([]int, len(headers))
-	for i, header := range headers {
-		widths[i] = utf8.RuneCountInString(header)
-	}
-	for _, row := range rows {
-		for i := range headers {
-			if i >= len(row) {
-				continue
-			}
-			if width := visibleWidth(row[i]); width > widths[i] {
-				widths[i] = width
-			}
-		}
-	}
-
-	writeLine := func(cells []string) {
-		var builder strings.Builder
-		for i := range headers {
-			if i > 0 {
-				builder.WriteString("  ")
-			}
-			cell := ""
-			if i < len(cells) {
-				cell = cells[i]
-			}
-			builder.WriteString(cell)
-			padding := widths[i] - visibleWidth(cell)
-			if padding > 0 {
-				builder.WriteString(strings.Repeat(" ", padding))
-			}
-		}
-		fmt.Fprintln(out, strings.TrimRight(builder.String(), " "))
-	}
-
-	writeLine(headers)
-	for _, row := range rows {
-		writeLine(row)
-	}
+	a.renderTable(a.Out, width, accountTableColumns, tableRows, newline)
 }
 
 // visibleWidth approximates terminal width for the small set of styled cells
-// used by agy-auth. ANSI escape sequences and dim() markers are ignored.
+// used by agy-auth. ANSI escape sequences are ignored.
 func visibleWidth(value string) int {
 	width := 0
 	inEscape := false

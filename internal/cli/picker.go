@@ -6,20 +6,21 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fikrilal/agy-auth/internal/agy"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"golang.org/x/term"
 )
 
 var errCancelled = errors.New("cancelled")
 
-func (a *App) chooseAccount(accounts []registry.Account, activeID, title string) (*registry.Account, error) {
+func (a *App) chooseAccount(accounts []registry.Account, activeID, title string, numbers map[string]int) (*registry.Account, error) {
 	if len(accounts) == 0 {
 		return nil, errors.New("no accounts available")
 	}
 	if !a.TTY || a.StdinFile == nil {
-		return a.chooseAccountNumbered(accounts, activeID, title)
+		return a.chooseAccountNumbered(accounts, activeID, title, numbers)
 	}
-	index, err := a.chooseAccountInteractive(accounts, activeID, title)
+	index, err := a.chooseAccountInteractive(accounts, activeID, title, numbers)
 	if err != nil {
 		return nil, err
 	}
@@ -27,35 +28,82 @@ func (a *App) chooseAccount(accounts []registry.Account, activeID, title string)
 	return &account, nil
 }
 
-func (a *App) chooseAccountNumbered(accounts []registry.Account, activeID, title string) (*registry.Account, error) {
-	fmt.Fprintln(a.Out, title)
-	for i, account := range accounts {
-		marker := " "
-		if account.ID == activeID {
-			marker = "*"
-		}
-		fmt.Fprintf(a.Out, "  %s %02d) %s\n", marker, i+1, account.DisplayName())
+func accountNumbers(reg *registry.Registry) map[string]int {
+	numbers := make(map[string]int, len(reg.Accounts))
+	for i, account := range reg.Accounts {
+		numbers[account.ID] = i + 1
 	}
-	answer, err := a.readLine(fmt.Sprintf("Select account [1-%d]: ", len(accounts)))
+	return numbers
+}
+
+func (a *App) pickerRows(accounts []registry.Account, activeID string, numbers map[string]int) []accountRow {
+	now := a.now()
+	rows := make([]accountRow, len(accounts))
+	for i, account := range accounts {
+		number := i + 1
+		if numbers != nil {
+			if value, ok := numbers[account.ID]; ok {
+				number = value
+			}
+		}
+		row := accountRow{
+			Number:     number,
+			ID:         account.ID,
+			Active:     account.ID == activeID,
+			Stored:     true,
+			Email:      account.Email,
+			Alias:      account.Alias,
+			AuthMethod: account.AuthMethod,
+			LastUsedAt: timePtr(account.LastUsedAt),
+		}
+		if raw, err := a.Store.LoadToken(account.ID); err == nil {
+			if tf, err := agy.ParseTokenFile(raw); err == nil {
+				if expiry, ok := tf.ExpiryTime(); ok {
+					value := expiry
+					row.ExpiresAt = &value
+					row.Expired = !expiry.After(now)
+				}
+				if row.Email == "" {
+					row.Email = tf.Email()
+				}
+				if row.AuthMethod == "" {
+					row.AuthMethod = tf.AuthMethod
+				}
+			}
+		}
+		rows[i] = row
+	}
+	return rows
+}
+
+func (a *App) chooseAccountNumbered(accounts []registry.Account, activeID, title string, numbers map[string]int) (*registry.Account, error) {
+	rows := a.pickerRows(accounts, activeID, numbers)
+	fmt.Fprintln(a.Out, title)
+	a.renderAccountRows(rows, a.now())
+	answer, err := a.readLine("Select account number: ")
 	if err != nil {
 		return nil, err
 	}
 	if answer == "" && len(accounts) == 1 {
-		answer = "1"
+		answer = strconv.Itoa(rows[0].Number)
 	}
 	number, err := strconv.Atoi(answer)
-	if err != nil || number < 1 || number > len(accounts) {
-		return nil, fmt.Errorf("invalid selection %q", answer)
+	if err == nil {
+		for i, row := range rows {
+			if row.Number == number {
+				account := accounts[i]
+				return &account, nil
+			}
+		}
 	}
-	account := accounts[number-1]
-	return &account, nil
+	return nil, fmt.Errorf("invalid selection %q", answer)
 }
 
-func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, title string) (int, error) {
+func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, title string, numbers map[string]int) (int, error) {
 	fd := int(a.StdinFile.Fd())
 	state, err := term.MakeRaw(fd)
 	if err != nil {
-		return a.chooseAccountInteractiveFallback(accounts, activeID, title, err)
+		return a.chooseAccountInteractiveFallback(accounts, activeID, title, numbers, err)
 	}
 	defer term.Restore(fd, state)
 
@@ -69,27 +117,15 @@ func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, ti
 			break
 		}
 	}
+	rows := a.pickerRows(accounts, activeID, numbers)
+	now := a.now()
 
 	render := func() {
 		fmt.Fprint(a.Out, "\x1b[H\x1b[2J")
 		fmt.Fprintf(a.Out, "%s\r\n", a.bold(title))
 		fmt.Fprintf(a.Out, "%s\r\n", a.dim("up/down or j/k move · enter select · q cancel"))
 		fmt.Fprint(a.Out, "\r\n")
-		for i, account := range accounts {
-			cursor := "  "
-			if i == index {
-				cursor = a.green("> ")
-			}
-			marker := " "
-			if account.ID == activeID {
-				marker = a.green("*")
-			}
-			line := fmt.Sprintf("%s%s %02d  %s", cursor, marker, i+1, account.DisplayName())
-			if i == index {
-				line = a.bold(line)
-			}
-			fmt.Fprintf(a.Out, "%s\r\n", line)
-		}
+		a.renderAccountTable(rows, now, index, "\r\n")
 	}
 
 	render()
@@ -147,9 +183,9 @@ func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, ti
 	}
 }
 
-func (a *App) chooseAccountInteractiveFallback(accounts []registry.Account, activeID, title string, cause error) (int, error) {
+func (a *App) chooseAccountInteractiveFallback(accounts []registry.Account, activeID, title string, numbers map[string]int, cause error) (int, error) {
 	fmt.Fprintf(a.Err, "warning: interactive terminal unavailable (%v); using numbered selection\n", cause)
-	account, err := a.chooseAccountNumbered(accounts, activeID, title)
+	account, err := a.chooseAccountNumbered(accounts, activeID, title, numbers)
 	if err != nil {
 		return -1, err
 	}

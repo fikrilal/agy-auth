@@ -14,6 +14,7 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 - Switch by row number, alias, email, or account ID prefix.
 - Toggle back to the previous account with `switch -`.
 - Candidate picker for ambiguous queries in a terminal.
+- Width-aware tables with active-first numbering and same-email grouping.
 - Add the account that is currently signed in (`add`).
 - Add another account through Google OAuth with PKCE (`login`) without touching the current credential first.
 - Import and export raw credential JSON.
@@ -161,6 +162,8 @@ The document looks like this:
 Before replacing or deleting the live credential, `agy-auth` snapshots the current value under `backups/` (`0600`, keep 5). `registry.json` is backed up when its contents change. `clean` prunes managed backups beyond retention and snapshots not referenced by the registry; if `registry.json` is missing, snapshots are preserved for rebuild.
 
 Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
+
+Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns.
 
 `remove` resolves and deduplicates every selector before deleting anything. If a later selector fails, no account is removed.
 

@@ -17,7 +17,8 @@ type ErrorDoc struct {
 }
 
 type Candidate struct {
-	ID    string `json:"id"`
-	Email string `json:"email,omitempty"`
-	Alias string `json:"alias,omitempty"`
+	Number int    `json:"number,omitempty"`
+	ID     string `json:"id"`
+	Email  string `json:"email,omitempty"`
+	Alias  string `json:"alias,omitempty"`
 }

@@ -117,7 +117,7 @@ func TestResolveQueries(t *testing.T) {
 	store := NewStore(t.TempDir())
 	expiry := time.Now().Add(time.Hour)
 	a, _ := store.Upsert(testToken(t, "alpha@one.com", "subject-a", "refresh-a", expiry), "work", true)
-	b, _ := store.Upsert(testToken(t, "beta@two.com", "subject-b", "refresh-b", expiry), "personal", true)
+	b, _ := store.Upsert(testToken(t, "beta@two.com", "subject-b", "refresh-b", expiry), "personal", false)
 	reg, _ := store.Load()
 
 	cases := map[string]string{
@@ -406,6 +406,24 @@ func TestCleanMalformedRegistryKeepsSnapshots(t *testing.T) {
 	}
 	if _, err := os.Stat(orphanPath); err != nil {
 		t.Errorf("snapshot was removed after registry error: %v", err)
+	}
+}
+
+func TestSortAccountsOrder(t *testing.T) {
+	reg := &Registry{
+		Active: "acct_b",
+		Accounts: []Account{
+			{ID: "acct_c", Email: "c@example.com"},
+			{ID: "acct_a", Email: "a@example.com"},
+			{ID: "acct_b", Email: "b@example.com"},
+		},
+	}
+	reg.SortAccounts()
+	want := []string{"acct_b", "acct_a", "acct_c"}
+	for i, id := range want {
+		if reg.Accounts[i].ID != id {
+			t.Fatalf("order[%d] = %q, want %q", i, reg.Accounts[i].ID, id)
+		}
 	}
 }
 
