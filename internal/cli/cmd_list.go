@@ -221,7 +221,7 @@ func (a *App) cmdAdd(args []string) int {
 	}
 	result, err := a.Store.Upsert(read.Raw, *alias, true)
 	if err != nil {
-		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the live agy credential")
+		return a.registryFailure(err, "could not save the live agy credential")
 	}
 
 	if a.JSON {

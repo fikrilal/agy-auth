@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/backup"
 	"github.com/fikrilal/agy-auth/internal/oauth"
 	"github.com/fikrilal/agy-auth/internal/registry"
 )
@@ -84,7 +86,7 @@ func (e *testEnv) app(input string) (*App, *bytes.Buffer, *bytes.Buffer) {
 		Out:     out,
 		Err:     errOut,
 		Store:   registry.NewStore(e.storeDir),
-		Storage: &agy.Storage{Service: "test", User: "test", FilePath: e.tokenPath, NoKeyring: true},
+		Storage: &agy.Storage{Service: "test", User: "test", FilePath: e.tokenPath, NoKeyring: true, Backup: backup.New(filepath.Join(e.storeDir, "backups"))},
 		Now:     func() time.Time { return testNow },
 		TTY:     false,
 		OutTTY:  false,
@@ -795,6 +797,72 @@ func TestExportAmbiguousPicker(t *testing.T) {
 	}
 }
 
+func TestCleanJSON(t *testing.T) {
+	env := newTestEnv(t, false)
+	store := registry.NewStore(env.storeDir)
+	if err := store.Save(&registry.Registry{Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.AccountsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orphanPath := filepath.Join(store.AccountsDir, "acct_orphan.json")
+	if err := os.WriteFile(orphanPath, []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"clean", "--dry-run", "--json"}); code != 0 {
+		t.Fatalf("clean exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Command != "clean" {
+		t.Fatalf("command = %q", envelope.Command)
+	}
+	var data struct {
+		DryRun    bool     `json:"dry_run"`
+		Backups   []string `json:"backups"`
+		Snapshots []string `json:"snapshots"`
+		Preserved bool     `json:"preserved"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if !data.DryRun || data.Preserved || !reflect.DeepEqual(data.Snapshots, []string{"acct_orphan.json"}) {
+		t.Fatalf("unexpected dry-run data: %+v", data)
+	}
+	if _, err := os.Stat(orphanPath); err != nil {
+		t.Errorf("dry run removed orphan: %v", err)
+	}
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"clean", "--json"}); code != 0 {
+		t.Fatalf("clean exit = %d, stderr = %s", code, errOut)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.DryRun || data.Preserved || !reflect.DeepEqual(data.Snapshots, []string{"acct_orphan.json"}) {
+		t.Fatalf("unexpected clean data: %+v", data)
+	}
+	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
+		t.Errorf("orphan still exists: %v", err)
+	}
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"clean", "--json"}); code != 0 {
+		t.Fatalf("second clean exit = %d, stderr = %s", code, errOut)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Snapshots) != 0 {
+		t.Errorf("snapshots = %v after clean", data.Snapshots)
+	}
+}
+
 func TestJSONInteractiveGuards(t *testing.T) {
 	env := newTestEnv(t, false)
 	cases := []struct {
@@ -1180,7 +1248,7 @@ func TestEveryCommandHasHelp(t *testing.T) {
 	env := newTestEnv(t, false)
 	commands := []string{
 		"list", "add", "login", "switch", "remove", "alias",
-		"status", "current", "import", "export", "path", "version",
+		"status", "current", "import", "export", "path", "clean", "version",
 	}
 	for _, command := range commands {
 		app, out, errOut := env.app("")

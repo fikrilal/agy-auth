@@ -76,7 +76,7 @@ func (a *App) cmdImport(args []string) int {
 	for i, raw := range raws {
 		result, err := a.Store.Upsert(raw, *alias, *activate)
 		if err != nil {
-			return a.failCode("registry_error", "Check the account registry permissions.", "could not import %s", files[i])
+			return a.registryFailure(err, fmt.Sprintf("could not import %s", files[i]))
 		}
 		imported = append(imported, result.Account)
 	}
@@ -85,6 +85,9 @@ func (a *App) cmdImport(args []string) int {
 	if *activate && len(files) == 1 {
 		report := a.Storage.Write(raws[0])
 		if !report.OK() {
+			if errors.Is(report.Error(), agy.ErrBackup) {
+				return a.failCode("backup_error", fmt.Sprintf("The account is imported; fix backup permissions and run `agy-auth switch %s`.", imported[0].ID), "could not back up the current agy credential")
+			}
 			return a.errorDoc(1, ErrorDoc{
 				Code:    "state_uncertain",
 				Message: "imported the account but could not write the agy credential",

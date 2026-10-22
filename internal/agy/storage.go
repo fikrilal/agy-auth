@@ -1,6 +1,7 @@
 package agy
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/fikrilal/agy-auth/internal/backup"
 	keyring "github.com/zalando/go-keyring"
 )
 
@@ -18,7 +20,10 @@ const (
 	keyringTimeout = 5 * time.Second
 )
 
-var ErrNoCredentials = errors.New("no Antigravity credentials found")
+var (
+	ErrNoCredentials = errors.New("no Antigravity credentials found")
+	ErrBackup        = errors.New("credential backup failed")
+)
 
 // Storage reads and writes the credential document agy itself uses.
 //
@@ -30,6 +35,7 @@ type Storage struct {
 	User      string
 	FilePath  string
 	NoKeyring bool
+	Backup    *backup.Store
 }
 
 func DefaultStorage() *Storage {
@@ -117,6 +123,9 @@ func (s *Storage) Write(raw []byte) WriteReport {
 	if _, err := ParseTokenFile(raw); err != nil {
 		return WriteReport{Errors: []error{err}}
 	}
+	if err := s.snapshotCurrentExcept(raw); err != nil {
+		return WriteReport{Errors: []error{fmt.Errorf("%w: %v", ErrBackup, err)}}
+	}
 	var report WriteReport
 	if s.KeyringAvailable() {
 		if err := s.writeKeyring(raw); err != nil {
@@ -133,7 +142,33 @@ func (s *Storage) Write(raw []byte) WriteReport {
 	return report
 }
 
+func (s *Storage) SnapshotCurrent() error {
+	return s.snapshotCurrentExcept(nil)
+}
+
+func (s *Storage) snapshotCurrentExcept(newRaw []byte) error {
+	if s.Backup == nil {
+		return nil
+	}
+	keyringRaw, fileRaw, _, _ := s.ReadBoth()
+	for _, current := range [][]byte{keyringRaw, fileRaw} {
+		if len(current) == 0 || (newRaw != nil && bytes.Equal(current, newRaw)) {
+			continue
+		}
+		if _, err := ParseTokenFile(current); err != nil {
+			continue
+		}
+		if err := s.Backup.Snapshot(backup.Active, current); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Storage) Delete() error {
+	if err := s.snapshotCurrentExcept(nil); err != nil {
+		return fmt.Errorf("%w: %v", ErrBackup, err)
+	}
 	var errs []error
 	if err := s.deleteKeyring(); err != nil && !errors.Is(err, ErrNoCredentials) {
 		errs = append(errs, fmt.Errorf("keyring: %w", err))
@@ -235,6 +270,14 @@ func keyringDelete(service, user string) error {
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
+		return os.Chmod(path, mode)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".antigravity-oauth-token-*")

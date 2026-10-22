@@ -302,14 +302,16 @@ func checkArchitecture(info *fileInfo) []Finding {
 		allowed = []string{"internal/cli"}
 	case info.dir == "cmd/harness":
 		allowed = []string{"internal/harness"}
-	case info.dir == "internal/agy":
+	case info.dir == "internal/backup":
 		allowed = nil
+	case info.dir == "internal/agy":
+		allowed = []string{"internal/backup"}
 	case info.dir == "internal/registry":
-		allowed = []string{"internal/agy"}
+		allowed = []string{"internal/agy", "internal/backup"}
 	case info.dir == "internal/oauth":
 		allowed = []string{"internal/agy"}
 	case info.dir == "internal/cli":
-		allowed = []string{"internal/agy", "internal/registry", "internal/oauth"}
+		allowed = []string{"internal/agy", "internal/registry", "internal/oauth", "internal/backup"}
 	case repo.Under(info.dir, "internal/harness"):
 		allowed = []string{"internal/harness", "internal/agy", "internal/registry"}
 	default:

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,9 +15,12 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/backup"
 )
 
 const Version = 1
+
+var ErrBackup = errors.New("registry backup failed")
 
 type Account struct {
 	ID          string    `json:"id"`
@@ -53,6 +57,7 @@ type Store struct {
 	Dir         string
 	AccountsDir string
 	Registry    string
+	Backups     *backup.Store
 }
 
 func DefaultStore() (*Store, error) {
@@ -71,6 +76,7 @@ func NewStore(dir string) *Store {
 		Dir:         dir,
 		AccountsDir: filepath.Join(dir, "accounts"),
 		Registry:    filepath.Join(dir, "registry.json"),
+		Backups:     backup.New(filepath.Join(dir, "backups")),
 	}
 }
 
@@ -130,11 +136,30 @@ func (s *Store) Save(reg *Registry) error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return fmt.Errorf("create registry directory: %w", err)
 	}
+	if err := os.Chmod(s.Dir, 0o700); err != nil {
+		return fmt.Errorf("harden registry directory: %w", err)
+	}
 	raw, err := json.MarshalIndent(reg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode registry: %w", err)
 	}
 	raw = append(raw, '\n')
+
+	existing, readErr := os.ReadFile(s.Registry)
+	switch {
+	case readErr == nil:
+		if bytes.Equal(existing, raw) {
+			return os.Chmod(s.Registry, 0o600)
+		}
+		if s.Backups != nil {
+			if err := s.Backups.Snapshot(backup.Registry, existing); err != nil {
+				return fmt.Errorf("%w: %v", ErrBackup, err)
+			}
+		}
+	case errors.Is(readErr, os.ErrNotExist):
+	default:
+		return fmt.Errorf("read registry for backup: %w", readErr)
+	}
 	return writeFileAtomic(s.Registry, raw, 0o600)
 }
 
@@ -155,6 +180,14 @@ func (s *Store) SaveToken(id string, raw []byte) error {
 	}
 	if err := os.MkdirAll(s.AccountsDir, 0o700); err != nil {
 		return fmt.Errorf("create accounts directory: %w", err)
+	}
+	if err := os.Chmod(s.AccountsDir, 0o700); err != nil {
+		return fmt.Errorf("harden accounts directory: %w", err)
+	}
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, raw) {
+		return os.Chmod(path, 0o600)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return writeFileAtomic(path, raw, 0o600)
 }
@@ -180,6 +213,75 @@ func (s *Store) DeleteToken(id string) error {
 		return fmt.Errorf("delete account %s: %w", id, err)
 	}
 	return nil
+}
+
+type CleanReport struct {
+	Backups   []string `json:"backups"`
+	Snapshots []string `json:"snapshots"`
+	Preserved bool     `json:"preserved,omitempty"`
+}
+
+// Clean prunes managed backups beyond retention and removes snapshot files not
+// referenced by the registry. If registry.json is missing, snapshots are
+// preserved so the registry can be rebuilt from them.
+func (s *Store) Clean(dryRun bool) (CleanReport, error) {
+	report := CleanReport{Backups: []string{}, Snapshots: []string{}}
+	if s.Backups != nil {
+		names, err := s.Backups.PruneAll(backup.Retention, dryRun)
+		if err != nil {
+			return report, err
+		}
+		report.Backups = append(report.Backups, names...)
+	}
+	if _, err := os.Stat(s.Registry); errors.Is(err, os.ErrNotExist) {
+		report.Preserved = true
+		return report, nil
+	} else if err != nil {
+		return report, err
+	}
+
+	reg, err := s.Load()
+	if err != nil {
+		return report, err
+	}
+	known := make(map[string]bool, len(reg.Accounts))
+	for _, account := range reg.Accounts {
+		known[account.ID] = true
+	}
+	entries, err := os.ReadDir(s.AccountsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return report, nil
+	}
+	if err != nil {
+		return report, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if !strings.HasPrefix(id, "acct_") {
+			continue
+		}
+		if err := validateID(id); err != nil {
+			continue
+		}
+		if known[id] {
+			continue
+		}
+		report.Snapshots = append(report.Snapshots, name)
+		if dryRun {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.AccountsDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return report, err
+		}
+	}
+	return report, nil
 }
 
 type UpsertResult struct {
@@ -516,6 +618,14 @@ func dedupe(accounts []Account) []Account {
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
+		return os.Chmod(path, mode)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".tmp-*")

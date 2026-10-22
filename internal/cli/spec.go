@@ -168,6 +168,20 @@ var commandSpecs = []CommandSpec{
 		Description: "Print the registry, credential file, and keyring locations.",
 	},
 	{
+		Name:     "clean",
+		Group:    "Other",
+		Synopsis: "clean [--dry-run]",
+		Summary:  "Prune managed backups and orphan snapshots",
+		Usage:    []string{"agy-auth clean [--dry-run]"},
+		Description: "Remove managed backup files beyond retention and snapshot files not\n" +
+			"referenced by the registry. Snapshots are preserved when registry.json is\n" +
+			"missing so the registry can be rebuilt.",
+		Options: []OptionSpec{
+			{Flag: "--dry-run", Description: "Show what would be removed"},
+		},
+		Examples: []string{"agy-auth clean --dry-run", "agy-auth clean"},
+	},
+	{
 		Name:        "version",
 		Group:       "Other",
 		Synopsis:    "version",

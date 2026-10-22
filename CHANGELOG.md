@@ -8,6 +8,8 @@ All notable changes to this project are documented here.
 
 - Repository harness with custom Go AST lints, secret scanning, credential/registry contract fixtures, doctor, git hooks, and `fast`/`full`/`ci` verification profiles.
 - Documentation index, engineering guides, execution-plan scaffold, and ADR process.
+- Timestamped backups for the live credential and registry, keeping the newest 5 of each with `0600`/`0700` permissions.
+- `agy-auth clean [--dry-run]` to prune managed backups and orphan snapshots.
 
 ### Changed
 
@@ -25,6 +27,7 @@ All notable changes to this project are documented here.
 - Ambiguous `alias`, `remove`, and `export` selectors now use the same candidate picker as `switch`.
 - `remove` resolves and deduplicates all selectors before deleting; snapshot deletion failures return `state_uncertain` without saving registry changes.
 - Alias messages distinguish set, already set, updated, and cleared.
+- Credential and registry writes are write-if-changed and re-harden permissions.
 
 ## [0.1.0] - 2026-10-20
 

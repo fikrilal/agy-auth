@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/backup"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"golang.org/x/term"
 )
@@ -40,12 +42,14 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	storage := agy.DefaultStorage()
+	storage.Backup = backup.New(filepath.Join(store.Dir, "backups"))
 	return &App{
 		In:         os.Stdin,
 		Out:        os.Stdout,
 		Err:        os.Stderr,
 		Store:      store,
-		Storage:    agy.DefaultStorage(),
+		Storage:    storage,
 		Now:        time.Now,
 		TTY:        term.IsTerminal(int(os.Stdin.Fd())),
 		OutTTY:     term.IsTerminal(int(os.Stdout.Fd())),
@@ -101,6 +105,8 @@ func (a *App) Run(args []string) int {
 		return a.cmdExport(rest)
 	case "path", "paths":
 		return a.cmdPath(rest)
+	case "clean":
+		return a.cmdClean(rest)
 	default:
 		return a.usageTop("unknown command %q", command)
 	}
@@ -188,6 +194,13 @@ func (a *App) failCode(code, hint, format string, args ...any) int {
 		Message: fmt.Sprintf(format, args...),
 		Hint:    hint,
 	})
+}
+
+func (a *App) registryFailure(err error, action string) int {
+	if errors.Is(err, registry.ErrBackup) {
+		return a.failCode("backup_error", "Check the backup directory permissions.", "could not back up the account registry")
+	}
+	return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "%s", action)
 }
 
 func (a *App) errorDoc(exit int, doc ErrorDoc) int {

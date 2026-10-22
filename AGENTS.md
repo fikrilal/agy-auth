@@ -37,6 +37,8 @@
 - File fallback: `~/.gemini/antigravity-cli/antigravity-oauth-token`.
 - Credential JSON: `token{access_token,token_type,refresh_token,expiry}`, `auth_method`, `id_token`. Preserve unknown fields by writing snapshots raw.
 - Registry: `~/.config/agy-auth/registry.json` plus `accounts/<id>.json`; directories `0700`, files `0600`.
+- Backups: `~/.config/agy-auth/backups/active-<timestamp>.json` and `registry-<timestamp>.json`; `0600` files in a `0700` directory, keep 5 of each.
+- Back up the live credential before replacing or deleting it and the registry before changing it. `clean` only removes managed backup names or orphan snapshots; it must preserve snapshots when `registry.json` is missing.
 - Account IDs are a stable hash of the Google `sub` claim; fall back to the refresh-token fingerprint.
 - Never commit the Antigravity OAuth client ID or secret. Only SHA-256 fingerprints live in `internal/oauth/oauth.go`.
 - Never log or print tokens or the OAuth client secret.
@@ -60,7 +62,7 @@ Use a temporary `AGY_AUTH_HOME` and `AGY_AUTH_STORAGE=file` for manual CLI testi
 
 1. Add the command in `internal/cli/cmd_*.go`.
 2. Register it in `Run` in `internal/cli/app.go`.
-3. Add help text in `internal/cli/help.go`.
+3. Add a `CommandSpec` in `internal/cli/spec.go` (help is generated from it).
 4. Support `--json` when the output is machine-readable.
 5. Add tests in the same package (see `internal/cli/cli_test.go`).
 

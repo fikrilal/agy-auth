@@ -77,6 +77,9 @@ func (a *App) cmdSwitch(args []string) int {
 
 	report := a.Storage.Write(raw)
 	if !report.OK() {
+		if errors.Is(report.Error(), agy.ErrBackup) {
+			return a.failCode("backup_error", "Check the backup directory permissions.", "could not back up the current agy credential")
+		}
 		return a.failCode("credential_write_failed", "Run `agy-auth status` to check keyring and file-mirror access.", "could not write the agy credential")
 	}
 	if err := report.Error(); err != nil {
@@ -96,9 +99,13 @@ func (a *App) cmdSwitch(args []string) int {
 	}
 	reg.Active = account.ID
 	if err := a.Store.Save(reg); err != nil {
+		message := "the credential was written but the registry could not be updated"
+		if errors.Is(err, registry.ErrBackup) {
+			message = "the credential was written but the registry could not be backed up"
+		}
 		return a.errorDoc(1, ErrorDoc{
 			Code:    "state_uncertain",
-			Message: "the credential was written but the registry could not be updated",
+			Message: message,
 			Hint:    "Run `agy-auth list` to verify the active account before retrying.",
 		})
 	}

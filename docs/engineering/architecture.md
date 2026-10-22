@@ -12,6 +12,7 @@ internal/cli/          commands, rendering, picker, App IO
 internal/agy/          credential JSON, keyring/file backend
 internal/registry/     account snapshots, metadata, queries
 internal/oauth/        PKCE login, client discovery
+internal/backup/       timestamped credential/registry backups
 
 npm/bin/               Node shim for prebuilt binaries
 scripts/               cross-compilation
@@ -22,10 +23,11 @@ docs/                  guides, plans, ADRs, internals
 ## Import direction
 
 ```text
-cmd/agy-auth -> internal/cli -> internal/{agy,registry,oauth}
-internal/registry -> internal/agy
+cmd/agy-auth -> internal/cli -> internal/{agy,registry,oauth,backup}
+internal/registry -> internal/{agy,backup}
 internal/oauth    -> internal/agy
-internal/agy      -> standard library + go-keyring
+internal/agy      -> internal/backup + standard library + go-keyring
+internal/backup   -> standard library
 internal/harness  -> internal/{agy,registry} (dev tool only)
 ```
 
@@ -47,6 +49,7 @@ keyring + file mirror -> restart agy
 - File fallback: `~/.gemini/antigravity-cli/antigravity-oauth-token`.
 - `internal/agy/storage.go` is the only place that talks to the keyring.
 - Credential and registry writes use the atomic temp-file + rename helper with `0600`/`0700` permissions.
+- `internal/agy` and `internal/registry` snapshot the previous value before changing it; `internal/backup` owns timestamped names, retention, and pruning.
 - Account identity is the Google `sub` claim; the refresh-token fingerprint is the fallback.
 
 See [Internals](../internals.md) for the full document shapes, registry schema, switching rules, and OAuth discovery.

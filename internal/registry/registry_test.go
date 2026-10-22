@@ -3,10 +3,14 @@ package registry
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/fikrilal/agy-auth/internal/backup"
 )
 
 func testToken(t *testing.T, email, subject, refresh string, expiry time.Time) []byte {
@@ -235,6 +239,173 @@ func TestPreviousTracking(t *testing.T) {
 	}
 	if loaded.Previous != "" {
 		t.Errorf("previous = %q when it equals active", loaded.Previous)
+	}
+}
+
+func TestSaveBacksUpChangedRegistry(t *testing.T) {
+	store := NewStore(t.TempDir())
+	expiry := time.Now().Add(time.Hour)
+	if _, err := store.Upsert(testToken(t, "first@example.com", "subject-1", "refresh-1", expiry), "first", true); err != nil {
+		t.Fatal(err)
+	}
+	if managed, err := store.Backups.Managed(backup.Registry); err != nil {
+		t.Fatal(err)
+	} else if len(managed) != 0 {
+		t.Fatalf("first save created backups: %d", len(managed))
+	}
+
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	if managed, err := store.Backups.Managed(backup.Registry); err != nil {
+		t.Fatal(err)
+	} else if len(managed) != 0 {
+		t.Fatalf("unchanged save created backups: %d", len(managed))
+	}
+
+	reg.Accounts[0].Alias = "changed"
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := store.Backups.Managed(backup.Registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(managed) != 1 {
+		t.Fatalf("changed save backups = %d, want 1", len(managed))
+	}
+	raw, err := os.ReadFile(managed[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var backedUp Registry
+	if err := json.Unmarshal(raw, &backedUp); err != nil {
+		t.Fatal(err)
+	}
+	if len(backedUp.Accounts) != 1 || backedUp.Accounts[0].Alias != "first" {
+		t.Errorf("backup does not contain the previous registry: %+v", backedUp.Accounts)
+	}
+}
+
+func TestClean(t *testing.T) {
+	store := NewStore(t.TempDir())
+	expiry := time.Now().Add(time.Hour)
+	first, err := store.Upsert(testToken(t, "first@example.com", "subject-1", "refresh-1", expiry), "first", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Upsert(testToken(t, "second@example.com", "subject-2", "refresh-2", expiry), "second", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanID := "acct_orphan"
+	orphanPath := filepath.Join(store.AccountsDir, orphanID+".json")
+	if err := os.WriteFile(orphanPath, []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknownPath := filepath.Join(store.AccountsDir, "notes.txt")
+	if err := os.WriteFile(unknownPath, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknownJSON := filepath.Join(store.AccountsDir, "notes.json")
+	if err := os.WriteFile(unknownJSON, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6; i++ {
+		if err := store.Backups.Snapshot(backup.Registry, []byte(fmt.Sprintf("backup-%d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := store.Backups.Managed(backup.Registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := store.Clean(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Preserved {
+		t.Error("registry should not be preserved")
+	}
+	if !reflect.DeepEqual(report.Snapshots, []string{orphanID + ".json"}) {
+		t.Errorf("planned snapshots = %v", report.Snapshots)
+	}
+	if len(report.Backups) != len(before)-backup.Retention {
+		t.Errorf("planned backups = %d, want %d", len(report.Backups), len(before)-backup.Retention)
+	}
+	if _, err := os.Stat(orphanPath); err != nil {
+		t.Errorf("dry run removed orphan: %v", err)
+	}
+
+	if _, err := store.Clean(false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
+		t.Errorf("orphan still exists: %v", err)
+	}
+	if _, err := os.Stat(unknownPath); err != nil {
+		t.Errorf("unknown file was removed: %v", err)
+	}
+	if _, err := os.Stat(unknownJSON); err != nil {
+		t.Errorf("unknown JSON file was removed: %v", err)
+	}
+	for _, account := range []Account{first.Account, second.Account} {
+		if _, err := os.Stat(filepath.Join(store.AccountsDir, account.ID+".json")); err != nil {
+			t.Errorf("known snapshot removed: %v", err)
+		}
+	}
+	managed, err := store.Backups.Managed(backup.Registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(managed) != backup.Retention {
+		t.Errorf("backups after clean = %d, want %d", len(managed), backup.Retention)
+	}
+}
+
+func TestCleanPreservesSnapshotsWithoutRegistry(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := os.MkdirAll(store.AccountsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orphanPath := filepath.Join(store.AccountsDir, "acct_orphan.json")
+	if err := os.WriteFile(orphanPath, []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := store.Clean(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Preserved {
+		t.Error("expected snapshots to be preserved")
+	}
+	if _, err := os.Stat(orphanPath); err != nil {
+		t.Errorf("snapshot was removed without a registry: %v", err)
+	}
+}
+
+func TestCleanMalformedRegistryKeepsSnapshots(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := os.MkdirAll(store.AccountsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Registry, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orphanPath := filepath.Join(store.AccountsDir, "acct_orphan.json")
+	if err := os.WriteFile(orphanPath, []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Clean(false); err == nil {
+		t.Fatal("expected malformed registry error")
+	}
+	if _, err := os.Stat(orphanPath); err != nil {
+		t.Errorf("snapshot was removed after registry error: %v", err)
 	}
 }
 

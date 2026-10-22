@@ -41,6 +41,7 @@ ADRs are review artifacts, not an automated task-authority system.
 | `internal/agy` | credential JSON, keyring/file backend |
 | `internal/registry` | account snapshots, metadata, queries |
 | `internal/oauth` | PKCE login, client discovery |
+| `internal/backup` | timestamped credential/registry backups and retention |
 | `internal/cli` | commands, rendering, picker |
 | `internal/harness` | lints, checks, contracts, profiles, doctor |
 | `harness/fixtures` | independent credential/registry contracts |

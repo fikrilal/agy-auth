@@ -63,6 +63,8 @@ Default directory: `os.UserConfigDir()/agy-auth` (for example `~/.config/agy-aut
 ```
 registry.json
 accounts/<id>.json
+backups/active-<timestamp>.json
+backups/registry-<timestamp>.json
 ```
 
 `registry.json`:
@@ -93,6 +95,12 @@ The registry's `active` field is a hint. `list` and `status` treat the live cred
 
 `previous` records the account that was active before the last switch (including `add`, `login`, and `import --activate`). `switch -` uses it; it is cleared when that account is removed, when the registry no longer contains it, or when it equals `active`.
 
+## Backups
+
+Before replacing or deleting the live credential, `internal/agy.Storage` writes the current raw credential to `backups/active-<timestamp>.json`. `registry.Store.Save` writes the previous `registry.json` to `backups/registry-<timestamp>.json` before changing it. Both use `0600` files in a `0700` directory and keep the newest 5 of each kind. Identical backup content is deduplicated. Registry and file writes that do not change bytes only re-harden permissions; credential writes still refresh the keyring.
+
+Backups contain the same secrets as snapshots. They are local recovery data, not an offsite backup.
+
 ## Switching
 
 Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. Ambiguous matches open a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects `previous`.
@@ -112,6 +120,10 @@ go-keyring's Linux `Set` uses Secret Service `CreateItem(..., replace=true)` wit
 
 `remove` resolves and deduplicates every selector before confirmation or deletion. It deletes all selected snapshot files first, then optionally deletes the live credential with `--logout`, then removes the registry entries and saves. If a snapshot deletion fails, no registry mutation is committed and the command returns `state_uncertain`; some snapshots may already be gone, so reconcile with `agy-auth list` and `agy-auth import`.
 
+## Clean
+
+`clean` removes managed backups beyond retention and snapshot files not referenced by `registry.json`. It only considers backup names matching `active-*.json`/`registry-*.json` with the managed timestamp form and snapshot names with valid account IDs; unknown files are left alone. If `registry.json` is missing, snapshots are preserved so the registry can be rebuilt from them. `--dry-run` reports the same set without deleting anything.
+
 ## Recovering the registry
 
 The account snapshots are authoritative. If `registry.json` is lost or corrupted, rebuild it from the snapshots:
@@ -120,7 +132,7 @@ The account snapshots are authoritative. If `registry.json` is lost or corrupted
 agy-auth import ~/.config/agy-auth/accounts
 ```
 
-This recreates entries from the raw credentials (email and subject come from the ID token). Aliases, `active`, `previous`, `added_at`, and `last_used_at` are not stored in the snapshots, so they are lost unless you back up `registry.json`.
+This recreates entries from the raw credentials (email and subject come from the ID token). Aliases, `active`, `previous`, `added_at`, and `last_used_at` are not stored in the snapshots, so they are lost unless you back up `registry.json`. Managed backups under `backups/` can restore the previous registry or live credential if the change was recent.
 
 ## OAuth login
 

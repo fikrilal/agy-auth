@@ -49,7 +49,7 @@ func (a *App) cmdAliasSet(args []string) int {
 		return a.usageFor("alias", "%s", err)
 	}
 	if err := a.Store.Save(reg); err != nil {
-		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the account registry")
+		return a.registryFailure(err, "could not save the account registry")
 	}
 	updated := reg.FindByID(account.ID)
 	if a.JSON {
@@ -91,7 +91,7 @@ func (a *App) cmdAliasClear(args []string) int {
 		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not clear the alias")
 	}
 	if err := a.Store.Save(reg); err != nil {
-		return a.failCode("registry_error", "Run `agy-auth status` to check storage health.", "could not save the account registry")
+		return a.registryFailure(err, "could not save the account registry")
 	}
 	updated := reg.FindByID(account.ID)
 	if a.JSON {

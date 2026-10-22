@@ -1,11 +1,14 @@
 package agy
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fikrilal/agy-auth/internal/backup"
 )
 
 func TestFileStorageRoundTrip(t *testing.T) {
@@ -46,6 +49,96 @@ func TestFileStorageRoundTrip(t *testing.T) {
 	}
 	if _, err := storage.Read(); !errors.Is(err, ErrNoCredentials) {
 		t.Errorf("expected ErrNoCredentials, got %v", err)
+	}
+}
+
+func TestStorageBacksUpChanges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token")
+	backups := backup.New(filepath.Join(dir, "backups"))
+	storage := &Storage{FilePath: path, NoKeyring: true, Backup: backups}
+	expiry := time.Now().Add(time.Hour).Format(time.RFC3339Nano)
+	first := makeTokenFile(t, "first@example.com", "subject-1", "refresh-1", expiry)
+	second := makeTokenFile(t, "second@example.com", "subject-2", "refresh-2", expiry)
+
+	if report := storage.Write(first); !report.OK() {
+		t.Fatalf("first write failed: %v", report.Error())
+	}
+	if report := storage.Write(second); !report.OK() {
+		t.Fatalf("second write failed: %v", report.Error())
+	}
+	managed, err := backups.Managed(backup.Active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(managed) != 1 {
+		t.Fatalf("backups = %d, want 1", len(managed))
+	}
+	backedUp, err := os.ReadFile(managed[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(backedUp, first) {
+		t.Error("backup does not contain the previous credential")
+	}
+
+	if report := storage.Write(second); !report.OK() {
+		t.Fatalf("idempotent write failed: %v", report.Error())
+	}
+	managed, err = backups.Managed(backup.Active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(managed) != 1 {
+		t.Errorf("identical write created a backup: %d", len(managed))
+	}
+
+	if err := storage.Delete(); err != nil {
+		t.Fatal(err)
+	}
+	managed, err = backups.Managed(backup.Active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(managed) != 2 {
+		t.Errorf("backups after delete = %d, want 2", len(managed))
+	}
+}
+
+func TestBackupFailureStopsWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token")
+	backupPath := filepath.Join(dir, "backups")
+	if err := os.WriteFile(backupPath, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	storage := &Storage{FilePath: path, NoKeyring: true, Backup: backup.New(backupPath)}
+	expiry := time.Now().Add(time.Hour).Format(time.RFC3339Nano)
+	first := makeTokenFile(t, "first@example.com", "subject-1", "refresh-1", expiry)
+	second := makeTokenFile(t, "second@example.com", "subject-2", "refresh-2", expiry)
+
+	if report := storage.Write(first); !report.OK() {
+		t.Fatalf("first write failed: %v", report.Error())
+	}
+	report := storage.Write(second)
+	if report.OK() {
+		t.Fatal("expected backup failure")
+	}
+	if !errors.Is(report.Error(), ErrBackup) {
+		t.Fatalf("error = %v, want ErrBackup", report.Error())
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, first) {
+		t.Error("credential was overwritten despite backup failure")
+	}
+	if err := storage.Delete(); err == nil || !errors.Is(err, ErrBackup) {
+		t.Errorf("delete error = %v, want ErrBackup", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("credential was deleted despite backup failure: %v", err)
 	}
 }
 

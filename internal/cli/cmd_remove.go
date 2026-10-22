@@ -119,6 +119,11 @@ func (a *App) cmdRemove(args []string) int {
 	if matched != nil && !*logout && removeIDs[matched.ID] {
 		a.warn("agy is still signed in to %s; the live credential was kept (use --logout to remove it)", matched.DisplayName())
 	}
+	if *logout && current != nil && (matched == nil || removeIDs[matched.ID]) {
+		if err := a.Storage.SnapshotCurrent(); err != nil {
+			return a.failCode("backup_error", "Check the backup directory permissions.", "could not back up the current agy credential")
+		}
+	}
 
 	for _, account := range selected {
 		if err := a.Store.DeleteToken(account.ID); err != nil {
@@ -133,7 +138,11 @@ func (a *App) cmdRemove(args []string) int {
 	loggedOut := false
 	if *logout && current != nil && (matched == nil || removeIDs[matched.ID]) {
 		if err := a.Storage.Delete(); err != nil {
-			a.warn("could not remove the live agy credential: %v", err)
+			if errors.Is(err, agy.ErrBackup) {
+				a.warn("could not back up the live agy credential before logout: %v", err)
+			} else {
+				a.warn("could not remove the live agy credential: %v", err)
+			}
 		} else {
 			loggedOut = true
 			if !a.JSON {
@@ -149,9 +158,13 @@ func (a *App) cmdRemove(args []string) int {
 		}
 	}
 	if err := a.Store.Save(reg); err != nil {
+		message := "the snapshots were removed but the registry could not be updated"
+		if errors.Is(err, registry.ErrBackup) {
+			message = "the snapshots were removed but the registry could not be backed up"
+		}
 		return a.errorDoc(1, ErrorDoc{
 			Code:    "state_uncertain",
-			Message: "the snapshots were removed but the registry could not be updated",
+			Message: message,
 			Hint:    "Run `agy-auth list` to verify the stored accounts.",
 		})
 	}

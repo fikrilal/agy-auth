@@ -18,6 +18,7 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 - Add another account through Google OAuth with PKCE (`login`) without touching the current credential first.
 - Import and export raw credential JSON.
 - Machine-readable output with `--json`.
+- Timestamped backups before credential and registry changes, with `clean` for retention and orphan cleanup.
 - Uses the same credential storage as `agy`: the OS keyring with a file fallback for headless hosts.
 - No telemetry. Tokens only leave the machine for Google OAuth and, if you use `--via-agy`, agy itself.
 
@@ -111,9 +112,10 @@ After switching, restart `agy`. An already-running `agy` process keeps the old c
 | `agy-auth import <file-or-dir> [--alias <alias>] [--activate]` | Import credential JSON |
 | `agy-auth export [--dir <directory>] [<query>...]` | Export credential JSON |
 | `agy-auth path` | Print storage locations |
+| `agy-auth clean [--dry-run]` | Prune managed backups and orphan snapshots |
 | `agy-auth version` | Print the version |
 
-Queries accept a row number from `list`, an alias, an exact email, an email substring, or an account ID prefix.
+Queries resolve by row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring.
 
 ### Global options
 
@@ -149,9 +151,13 @@ The document looks like this:
 ~/.config/agy-auth/
   registry.json
   accounts/<account-id>.json
+  backups/active-<timestamp>.json
+  backups/registry-<timestamp>.json
 ```
 
 `switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. `agy` refreshes expired access tokens itself with the stored refresh token.
+
+Before replacing or deleting the live credential, `agy-auth` snapshots the current value under `backups/` (`0600`, keep 5). `registry.json` is backed up when its contents change. `clean` prunes managed backups beyond retention and snapshots not referenced by the registry; if `registry.json` is missing, snapshots are preserved for rebuild.
 
 Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
 
@@ -225,7 +231,7 @@ Usage and operation errors use the same envelope:
 
 `command` is always the canonical command name, even when an alias is used.
 
-Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `registry_error`, `state_uncertain`, `oauth_error`, `import_failed`, `invalid_credential`, `export_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
+Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `backup_error`, `registry_error`, `state_uncertain`, `oauth_error`, `import_failed`, `invalid_credential`, `export_failed`, `clean_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
 
 `ambiguous_query` errors include a `candidates` array with account IDs, emails, and aliases. Hints are included when there is a concrete recovery step.
 

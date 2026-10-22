@@ -99,10 +99,13 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 	}
 	result, err := a.Store.Upsert(raw, alias, true)
 	if err != nil {
-		return a.failCode("registry_error", "Check the account registry permissions.", "could not save the logged-in account")
+		return a.registryFailure(err, "could not save the logged-in account")
 	}
 	report := a.Storage.Write(raw)
 	if !report.OK() {
+		if errors.Is(report.Error(), agy.ErrBackup) {
+			return a.failCode("backup_error", fmt.Sprintf("The account is saved; fix backup permissions and run `agy-auth switch %s`.", result.Account.ID), "could not back up the current agy credential")
+		}
 		return a.errorDoc(1, ErrorDoc{
 			Code:    "state_uncertain",
 			Message: "the account was saved, but the agy credential could not be written",
@@ -180,7 +183,7 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 	}
 	result, err := a.Store.Upsert(read.Raw, alias, true)
 	if err != nil {
-		return a.failCode("registry_error", "Check the account registry permissions.", "could not save the new account")
+		return a.registryFailure(err, "could not save the new account")
 	}
 	return a.finishLogin(result, agy.WriteReport{Written: []agy.Source{read.Source}}, nil)
 }
