@@ -143,15 +143,15 @@ var commandSpecs = []CommandSpec{
 		Name:     "usage",
 		Group:    "Account management",
 		Synopsis: "usage [query] [--all]",
-		Summary:  "Show per-model quota details",
+		Summary:  "Show Antigravity quota groups",
 		Usage: []string{
 			"agy-auth usage [<query>]",
 			"agy-auth usage --all",
 		},
-		Description: "Show per-model quota buckets for the live account, the active stored account,\n" +
-			"or one account selected by query. --all compares every stored account by its\n" +
-			"lowest model bucket and reset. The shared 5H/weekly summary is shown by\n" +
-			"`agy-auth list`; this view includes model-level buckets such as Gemini.",
+		Description: "Show the same quota groups as `agy /usage`: Gemini Models, Claude and GPT\n" +
+			"models, and any tier-specific group such as Ultra. Each group shows its 5-hour\n" +
+			"and weekly remaining percentage plus reset times. --all compares every stored\n" +
+			"account; a query selects one account.",
 		Options:  []OptionSpec{{Flag: "--all", Description: "Show every stored account"}},
 		Examples: []string{"agy-auth usage", "agy-auth usage work", "agy-auth usage --all", "agy-auth usage --json"},
 	},

@@ -113,9 +113,9 @@ The non-live table uses `#`, `ACCOUNT`, `EXPIRES`, `METHOD`, and `LAST` columns.
 - `POST https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`
 - `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
 
-Both requests send the account access token and a project ID. The summary response supplies the shared `5h` and `weekly` buckets; when multiple groups exist, the lowest remaining fraction for each window wins. Per-model buckets from `retrieveUserQuota` are not used for the account columns.
+Both requests send the account access token and a project ID. The summary response supplies named groups such as `Gemini Models` and `Claude and GPT models`, each with `5h` and `weekly` buckets. `list` collapses the groups to the lowest remaining fraction for each window; `agy-auth usage` renders the groups individually, matching `agy /usage`.
 
-The backend expects an `antigravity*` User-Agent. A generic client receives an empty `loadCodeAssist` response and `403 PERMISSION_DENIED` from the quota summary, so `usage.DefaultUserAgent` uses `antigravity/agy-auth/<version> (<os>; <arch>)`.
+The backend expects the CLI User-Agent family. `antigravity/cli/<version>` returns all quota groups; a generic `antigravity/agy-auth/...` client receives only the Claude/GPT group. `usage.DefaultUserAgent` therefore uses `antigravity/cli/1.4.5 (agy-auth/<version>; os_type=<goos>; arch=<goarch>; auth_method=consumer)`.
 
 Project lookup order:
 
@@ -131,7 +131,7 @@ If the access token is expired, `internal/usage` refreshes it through `internal/
 
 `list` enriches rows concurrently with a bounded worker count and a 30-second overall budget. A quota failure never fails the command. `list --no-usage` skips the provider entirely.
 
-`agy-auth usage` uses `retrieveUserQuota` for model-level buckets. It resolves the live account first, then the active stored account, or one query-selected snapshot. The response is sorted by model ID and rendered with `MODEL`, `REMAINING`, and `RESETS`; JSON returns the account/email, plan, update time, and bucket array. `usage --all` fetches plan, shared summary, and model buckets for every stored account (`FetchFull`) and compares them by lowest model headroom and reset. Full results use a TTL cache matching the live interval. This command is intentionally separate from `list` so the common list path stays at two requests per account instead of three.
+`agy-auth usage` renders the grouped summary for the live account, the active stored account, or one query-selected snapshot. Each group has a name, description, and `5h`/`weekly` buckets with remaining fraction and reset time; JSON returns the account/email, updated time, and groups. `usage --all` compares the same group rows for every stored account. Ultra/tier-specific groups are displayed automatically when the backend returns them. The per-model `retrieveUserQuota` endpoint is still used by the live auto-switch path, not by the `usage` display.
 
 ## Live views
 

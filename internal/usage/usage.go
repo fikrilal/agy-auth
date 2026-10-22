@@ -101,10 +101,6 @@ func (d Detail) Exhausted() bool {
 	return false
 }
 
-type DetailProvider interface {
-	FetchDetail(ctx context.Context, token *agy.TokenFile) (Detail, error)
-}
-
 type Full struct {
 	Snapshot Snapshot
 	Detail   Detail
@@ -156,10 +152,11 @@ func DefaultProjectID() string {
 }
 
 func DefaultUserAgent(version string) string {
-	if version == "" {
-		return fmt.Sprintf("antigravity/agy-auth (%s; %s)", runtime.GOOS, runtime.GOARCH)
+	client := "agy-auth"
+	if version != "" {
+		client += "/" + version
 	}
-	return fmt.Sprintf("antigravity/agy-auth/%s (%s; %s)", version, runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("antigravity/cli/1.4.5 (%s; os_type=%s; arch=%s; auth_method=consumer)", client, runtime.GOOS, runtime.GOARCH)
 }
 
 func (c *Client) Fetch(ctx context.Context, _ string, token *agy.TokenFile) (Snapshot, error) {
@@ -183,27 +180,6 @@ func (c *Client) Fetch(ctx context.Context, _ string, token *agy.TokenFile) (Sna
 	}
 	applySummary(&snapshot, summary)
 	return snapshot, nil
-}
-
-func (c *Client) FetchDetail(ctx context.Context, token *agy.TokenFile) (Detail, error) {
-	accessToken, err := c.accessToken(ctx, token)
-	if err != nil {
-		return Detail{}, err
-	}
-	project, assist, err := c.loadCodeAssist(ctx, accessToken)
-	if err != nil {
-		return Detail{}, err
-	}
-
-	var quota quotaResponse
-	status, err := c.post(ctx, "retrieveUserQuota", quotaRequest{Project: project}, accessToken, &quota)
-	if err != nil {
-		return Detail{}, err
-	}
-	if status < http.StatusOK || status > 299 {
-		return Detail{}, statusError(status)
-	}
-	return detailFromQuota(assist, quota, c.now().UTC()), nil
 }
 
 func (c *Client) FetchFull(ctx context.Context, _ string, token *agy.TokenFile) (Full, error) {
@@ -653,9 +629,14 @@ type quotaResponse struct {
 }
 
 type quotaSummaryResponse struct {
-	Groups []struct {
-		Buckets []struct {
+	Description string `json:"description"`
+	Groups      []struct {
+		DisplayName string `json:"displayName"`
+		Description string `json:"description"`
+		Buckets     []struct {
 			BucketID          string   `json:"bucketId"`
+			DisplayName       string   `json:"displayName"`
+			Description       string   `json:"description"`
 			Window            string   `json:"window"`
 			RemainingFraction *float64 `json:"remainingFraction"`
 			ResetTime         string   `json:"resetTime"`

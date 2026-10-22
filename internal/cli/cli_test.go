@@ -2160,61 +2160,48 @@ func TestMaybeAutoSwitch(t *testing.T) {
 	}
 }
 
-type testDetailProvider struct {
-	detail usage.Detail
+type testGroupsProvider struct {
+	mu     sync.Mutex
+	groups usage.Groups
 	err    error
 	calls  int
 }
 
-func (p *testDetailProvider) FetchDetail(context.Context, *agy.TokenFile) (usage.Detail, error) {
-	p.calls++
-	return p.detail, p.err
-}
-
-func usageDetail() usage.Detail {
-	reset := testNow.Add(2 * time.Hour)
-	return usage.Detail{
-		Plan: "Pro",
-		Buckets: []usage.Model{
-			{ModelID: "gemini-2.5-pro", RemainingPercent: 94, ResetsAt: &reset, TokenType: "WTUS"},
-			{ModelID: "claude-opus-4-6-thinking", RemainingPercent: 100, ResetsAt: &reset, TokenType: "WTUS"},
-		},
-		UpdatedAt: testNow,
-	}
-}
-
-type testFullProvider struct {
-	mu    sync.Mutex
-	full  usage.Full
-	err   error
-	calls int
-}
-
-func (p *testFullProvider) FetchFull(context.Context, string, *agy.TokenFile) (usage.Full, error) {
+func (p *testGroupsProvider) FetchGroups(context.Context, *agy.TokenFile) (usage.Groups, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
-	return p.full, p.err
+	return p.groups, p.err
 }
 
-func (p *testFullProvider) callCount() int {
+func (p *testGroupsProvider) callCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.calls
 }
 
-func usageFull() usage.Full {
-	snapshot := usageSnapshot()
-	return usage.Full{
-		Snapshot: snapshot,
-		Detail: usage.Detail{
-			Plan: "Pro",
-			Buckets: []usage.Model{
-				{ModelID: "gemini-2.5-pro", RemainingPercent: 95, ResetsAt: snapshot.FiveHour.ResetsAt},
-				{ModelID: "claude-opus-4-6-thinking", RemainingPercent: 100, ResetsAt: snapshot.Weekly.ResetsAt},
+func usageGroups() usage.Groups {
+	return usage.Groups{
+		Description: "Within each group, models share a weekly limit and a 5-hour limit.",
+		Groups: []usage.Group{
+			{
+				Name:        "Gemini Models",
+				Description: "Models within this group: Gemini Flash, Gemini Pro",
+				Buckets: []usage.GroupBucket{
+					{ID: "gemini-weekly", Window: "weekly", RemainingFraction: 0.58, RemainingPercent: 58, ResetTime: "2026-10-24T02:39:46Z"},
+					{ID: "gemini-5h", Window: "5h", RemainingFraction: 1, RemainingPercent: 100, ResetTime: "2026-10-22T22:32:29Z"},
+				},
 			},
-			UpdatedAt: testNow,
+			{
+				Name:        "Claude and GPT models",
+				Description: "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS",
+				Buckets: []usage.GroupBucket{
+					{ID: "3p-weekly", Window: "weekly", RemainingFraction: 1, RemainingPercent: 100, ResetTime: "2026-10-29T17:32:29Z"},
+					{ID: "3p-5h", Window: "5h", RemainingFraction: 1, RemainingPercent: 100, ResetTime: "2026-10-22T22:32:29Z"},
+				},
+			},
 		},
+		UpdatedAt: testNow,
 	}
 }
 
@@ -2226,37 +2213,40 @@ func TestUsageCommandAll(t *testing.T) {
 	}
 	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
 
-	provider := &testFullProvider{full: usageFull()}
+	provider := &testGroupsProvider{groups: usageGroups()}
 	app, out, errOut := env.app("")
 	app.Width = 140
-	app.UsageFull = provider
+	app.UsageGroups = provider
 	if code := app.Run([]string{"usage", "--all"}); code != 0 {
 		t.Fatalf("usage --all exit = %d, stderr = %s", code, errOut)
 	}
-	for _, want := range []string{"ACCOUNT", "PLAN", "LOWEST", "MODEL", "RESETS", "first", "second", "95%"} {
+	for _, want := range []string{"ACCOUNT", "GROUP", "5H", "WEEKLY", "Gemini Models", "Claude and GPT models", "58%", "first", "second"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage --all output missing %q: %q", want, out.String())
 		}
+	}
+	if strings.Contains(out.String(), "LOWEST") || strings.Contains(out.String(), "MODEL") {
+		t.Errorf("usage --all still has the old model columns: %q", out.String())
+	}
+	if strings.Count(out.String(), "Gemini Models") != 2 {
+		t.Errorf("gemini group rows = %d", strings.Count(out.String(), "Gemini Models"))
 	}
 	if provider.callCount() != 2 {
 		t.Errorf("provider calls = %d", provider.callCount())
 	}
 
-	provider = &testFullProvider{full: usageFull()}
+	provider = &testGroupsProvider{groups: usageGroups()}
 	app, out, errOut = env.app("")
-	app.UsageFull = provider
+	app.UsageGroups = provider
 	if code := app.Run([]string{"usage", "--all", "--json"}); code != 0 {
 		t.Fatalf("usage --all json exit = %d, stderr = %s", code, errOut)
 	}
 	envelope := decodeTestEnvelope(t, out)
 	var payload struct {
 		Accounts []struct {
-			Email      string          `json:"email"`
-			Plan       string          `json:"plan"`
-			Usage      *usage.Snapshot `json:"usage"`
-			Buckets    []usage.Model   `json:"buckets"`
-			Lowest     *usage.Model    `json:"lowest"`
-			UsageError string          `json:"usage_error"`
+			Email      string        `json:"email"`
+			Groups     []usage.Group `json:"groups"`
+			UsageError string        `json:"usage_error"`
 		} `json:"accounts"`
 	}
 	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
@@ -2266,18 +2256,18 @@ func TestUsageCommandAll(t *testing.T) {
 		t.Fatalf("accounts = %+v", payload.Accounts)
 	}
 	first := payload.Accounts[0]
-	if first.Email != "user@example.com" || first.Plan != "Pro" || first.Usage == nil || len(first.Buckets) != 2 {
+	if first.Email != "user@example.com" || len(first.Groups) != 2 || first.UsageError != "" {
 		t.Errorf("first account = %+v", first)
 	}
-	if first.Lowest == nil || first.Lowest.RemainingPercent != 95 {
-		t.Errorf("lowest = %+v", first.Lowest)
+	if first.Groups[0].Name != "Gemini Models" || len(first.Groups[0].Buckets) != 2 || first.Groups[0].Buckets[0].RemainingPercent != 58 {
+		t.Errorf("first groups = %+v", first.Groups)
 	}
 }
 
 func TestUsageCommandAllValidation(t *testing.T) {
 	env := newTestEnv(t, false)
 	app, out, _ := env.app("")
-	app.UsageFull = &testFullProvider{full: usageFull()}
+	app.UsageGroups = &testGroupsProvider{groups: usageGroups()}
 	if code := app.Run([]string{"usage", "--all", "--json"}); code != 1 {
 		t.Fatalf("usage --all exit = %d", code)
 	}
@@ -2303,7 +2293,7 @@ func TestUsageCommandAllFetchFailure(t *testing.T) {
 		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
 	}
 	app, _, errOut = env.app("")
-	app.UsageFull = &testFullProvider{err: usage.ErrForbidden}
+	app.UsageGroups = &testGroupsProvider{err: usage.ErrForbidden}
 	if code := app.Run([]string{"usage", "--all"}); code != 0 {
 		t.Fatalf("usage --all exit = %d, stderr = %s", code, errOut)
 	}
@@ -2311,7 +2301,7 @@ func TestUsageCommandAllFetchFailure(t *testing.T) {
 		t.Errorf("stderr = %q", errOut.String())
 	}
 	app, out, _ := env.app("")
-	app.UsageFull = &testFullProvider{err: usage.ErrForbidden}
+	app.UsageGroups = &testGroupsProvider{err: usage.ErrForbidden}
 	if code := app.Run([]string{"usage", "--all", "--json"}); code != 0 {
 		t.Fatalf("usage --all json exit = %d", code)
 	}
@@ -2336,43 +2326,45 @@ func TestUsageCommand(t *testing.T) {
 		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
 	}
 
-	provider := &testDetailProvider{detail: usageDetail()}
+	provider := &testGroupsProvider{groups: usageGroups()}
 	app, out, errOut := env.app("")
 	app.Width = 100
-	app.UsageDetail = provider
+	app.UsageGroups = provider
 	if code := app.Run([]string{"usage"}); code != 0 {
 		t.Fatalf("usage exit = %d, stderr = %s", code, errOut)
 	}
-	for _, want := range []string{"Account:", "Plan: Pro", "MODEL", "gemini-2.5-pro", "94%", "2026-10-20"} {
+	for _, want := range []string{"Account:", "GROUP", "Gemini Models", "Claude and GPT models", "58%", "100%", "2026-10-24"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage output missing %q: %q", want, out.String())
 		}
 	}
+	if strings.Contains(out.String(), "LOWEST") || strings.Contains(out.String(), "MODEL") {
+		t.Errorf("usage output still has the old model columns: %q", out.String())
+	}
 
-	provider = &testDetailProvider{detail: usageDetail()}
+	provider = &testGroupsProvider{groups: usageGroups()}
 	app, out, errOut = env.app("")
-	app.UsageDetail = provider
+	app.UsageGroups = provider
 	if code := app.Run([]string{"usage", "personal", "--json"}); code != 0 {
 		t.Fatalf("usage json exit = %d, stderr = %s", code, errOut)
 	}
 	envelope := decodeTestEnvelope(t, out)
 	var payload struct {
 		Email   string            `json:"email"`
-		Plan    string            `json:"plan"`
-		Buckets []usage.Model     `json:"buckets"`
+		Groups  []usage.Group     `json:"groups"`
 		Account *registry.Account `json:"account"`
 	}
 	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Email != "user@example.com" || payload.Plan != "Pro" || len(payload.Buckets) != 2 {
+	if payload.Email != "user@example.com" || len(payload.Groups) != 2 {
 		t.Errorf("payload = %+v", payload)
 	}
 	if payload.Account == nil || payload.Account.Alias != "personal" {
 		t.Errorf("account = %+v", payload.Account)
 	}
-	if payload.Buckets[0].ModelID != "gemini-2.5-pro" || payload.Buckets[0].RemainingPercent != 94 {
-		t.Errorf("buckets = %+v", payload.Buckets)
+	if payload.Groups[0].Name != "Gemini Models" || len(payload.Groups[0].Buckets) != 2 || payload.Groups[0].Buckets[0].RemainingPercent != 58 {
+		t.Errorf("groups = %+v", payload.Groups)
 	}
 }
 
@@ -2385,21 +2377,21 @@ func TestUsageCommandFallsBackToStoredAccount(t *testing.T) {
 	if err := os.Remove(env.tokenPath); err != nil {
 		t.Fatal(err)
 	}
-	provider := &testDetailProvider{detail: usageDetail()}
+	provider := &testGroupsProvider{groups: usageGroups()}
 	app, out, errOut := env.app("")
-	app.UsageDetail = provider
+	app.UsageGroups = provider
 	if code := app.Run([]string{"usage"}); code != 0 {
 		t.Fatalf("usage exit = %d, stderr = %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "user@example.com") || provider.calls != 1 {
-		t.Errorf("output = %q calls = %d", out.String(), provider.calls)
+	if !strings.Contains(out.String(), "user@example.com") || provider.callCount() != 1 {
+		t.Errorf("output = %q calls = %d", out.String(), provider.callCount())
 	}
 }
 
 func TestUsageCommandNoCredential(t *testing.T) {
 	env := newTestEnv(t, false)
 	app, out, _ := env.app("")
-	app.UsageDetail = &testDetailProvider{detail: usageDetail()}
+	app.UsageGroups = &testGroupsProvider{groups: usageGroups()}
 	if code := app.Run([]string{"usage", "--json"}); code != 1 {
 		t.Fatalf("usage exit = %d", code)
 	}
@@ -2416,7 +2408,7 @@ func TestUsageCommandFetchFailure(t *testing.T) {
 		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
 	}
 	app, out, _ := env.app("")
-	app.UsageDetail = &testDetailProvider{err: usage.ErrForbidden}
+	app.UsageGroups = &testGroupsProvider{err: usage.ErrForbidden}
 	if code := app.Run([]string{"usage", "--json"}); code != 1 {
 		t.Fatalf("usage exit = %d", code)
 	}

@@ -19,9 +19,9 @@ All notable changes to this project are documented here.
 - `list --no-usage` to skip quota lookups.
 - `switch --live` auto-switch when the active account is at 0% on a fresh 5-hour/weekly window or model bucket, choosing the healthy stored account with the earliest reset; stale detail is ignored.
 - List JSON rows now include `plan`, `usage`, and `usage_error`.
-- `agy-auth usage [<query>]` for per-model quota buckets, including Gemini models omitted by the shared summary.
-- `agy-auth usage --all` to compare every stored account by plan, shared windows, lowest model headroom, and reset.
-- A cached full quota fetch for live views and `usage --all`, sharing the configured live interval.
+- `agy-auth usage [<query>]` for Antigravity quota groups: Gemini Models, Claude and GPT models, and tier-specific groups such as Ultra.
+- `agy-auth usage --all` to compare the same group rows across every stored account.
+- A cached full quota fetch for live views, sharing the configured live interval.
 - `agy-auth config live [--interval <seconds>]` with a 5–3600 second live refresh cadence stored in `registry.json`; `import --purge` preserves it.
 
 ### Changed

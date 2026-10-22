@@ -153,62 +153,6 @@ func TestFetchRefreshesExpiredToken(t *testing.T) {
 	}
 }
 
-func TestFetchDetail(t *testing.T) {
-	var quotaBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		switch {
-		case strings.HasSuffix(request.URL.Path, ":loadCodeAssist"):
-			_ = json.NewEncoder(writer).Encode(map[string]any{
-				"paidTier": map[string]any{"id": "g1-pro-tier"},
-			})
-		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuota"):
-			if err := json.NewDecoder(request.Body).Decode(&quotaBody); err != nil {
-				t.Error(err)
-			}
-			_ = json.NewEncoder(writer).Encode(map[string]any{
-				"buckets": []any{
-					map[string]any{"tokenType": "WTUS", "modelId": "z-model", "remainingFraction": 1, "resetTime": "2026-10-22T18:11:00Z"},
-					map[string]any{"tokenType": "WTUS", "modelId": "gemini-2.5-pro", "remainingFraction": 0.75, "resetTime": "2026-10-22T14:11:00Z"},
-				},
-			})
-		default:
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-
-	client := &Client{
-		Endpoint:   server.URL + "/v1internal",
-		ProjectID:  "project-1",
-		UserAgent:  "antigravity/test",
-		HTTPClient: server.Client(),
-		Now:        func() time.Time { return usageTestNow },
-	}
-	detail, err := client.FetchDetail(context.Background(), usageTestToken(usageTestNow.Add(time.Hour)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if detail.Plan != "Pro" {
-		t.Errorf("plan = %q", detail.Plan)
-	}
-	if len(detail.Buckets) != 2 {
-		t.Fatalf("buckets = %+v", detail.Buckets)
-	}
-	if detail.Buckets[0].ModelID != "gemini-2.5-pro" || detail.Buckets[1].ModelID != "z-model" {
-		t.Errorf("buckets are not sorted: %+v", detail.Buckets)
-	}
-	if detail.Buckets[0].RemainingPercent != 75 {
-		t.Errorf("remaining = %d", detail.Buckets[0].RemainingPercent)
-	}
-	if detail.Buckets[0].ResetsAt == nil || detail.Buckets[0].ResetsAt.Hour() != 14 {
-		t.Errorf("reset = %v", detail.Buckets[0].ResetsAt)
-	}
-	if quotaBody["project"] != "project-1" {
-		t.Errorf("quota body = %#v", quotaBody)
-	}
-}
-
 func TestFetchFull(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
@@ -491,7 +435,7 @@ func TestDefaultProjectAndUserAgent(t *testing.T) {
 	if got := DefaultProjectID(); got != "project-from-env" {
 		t.Errorf("project = %q", got)
 	}
-	if got := DefaultUserAgent("1.2.3"); !strings.HasPrefix(got, "antigravity/agy-auth/1.2.3") {
+	if got := DefaultUserAgent("1.2.3"); !strings.HasPrefix(got, "antigravity/cli/1.4.5") || !strings.Contains(got, "agy-auth/1.2.3") {
 		t.Errorf("user agent = %q", got)
 	}
 }

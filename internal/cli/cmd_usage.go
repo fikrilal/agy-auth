@@ -4,12 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"github.com/fikrilal/agy-auth/internal/usage"
 )
+
+const usageGroupTimeout = 60 * time.Second
+const usageGroupWorkers = 3
 
 func (a *App) cmdUsage(args []string) int {
 	fs := a.newFlagSet("usage")
@@ -35,21 +40,21 @@ func (a *App) cmdUsage(args []string) int {
 	if code != 0 {
 		return code
 	}
-	if a.UsageDetail == nil {
-		return a.failCode("quota_error", "Run `agy-auth list` for the shared quota summary.", "quota detail provider is unavailable")
+	if a.UsageGroups == nil {
+		return a.failCode("quota_error", "Try again later.", "quota group provider is unavailable")
 	}
-	detail, err := a.UsageDetail.FetchDetail(context.Background(), tokenFile)
+	groups, err := a.fetchUsageGroups(tokenFile)
 	if err != nil {
 		return a.quotaFailure(err, usageLabel(account, tokenFile))
 	}
 
 	if a.JSON {
 		payload := map[string]any{
-			"account":    account,
-			"email":      tokenFile.Email(),
-			"plan":       detail.Plan,
-			"updated_at": detail.UpdatedAt,
-			"buckets":    detail.Buckets,
+			"account":     account,
+			"email":       tokenFile.Email(),
+			"description": groups.Description,
+			"updated_at":  groups.UpdatedAt,
+			"groups":      groups.Groups,
 		}
 		if err := a.emitJSON(payload); err != nil {
 			return a.failCode("output_error", "", "could not write JSON output")
@@ -58,40 +63,31 @@ func (a *App) cmdUsage(args []string) int {
 	}
 
 	fmt.Fprintf(a.Out, "Account: %s\n", usageLabel(account, tokenFile))
-	if detail.Plan != "" {
-		fmt.Fprintf(a.Out, "Plan: %s\n", detail.Plan)
-	}
-	if len(detail.Buckets) == 0 {
-		fmt.Fprintln(a.Out, "No quota buckets returned.")
+	if len(groups.Groups) == 0 {
+		fmt.Fprintln(a.Out, "No quota groups returned.")
 		return 0
 	}
 	fmt.Fprintln(a.Out)
-	columns := []tableColumn{
-		{Header: "MODEL", Min: 16, Max: 48, Priority: 1, Required: true, Flex: true},
-		{Header: "REMAINING", Min: 9, Max: 9, Priority: 2, Right: true},
-		{Header: "RESETS", Min: 16, Max: 25, Priority: 3},
-	}
-	rows := make([]tableRow, 0, len(detail.Buckets))
-	for _, bucket := range detail.Buckets {
-		rows = append(rows, tableRow{Cells: []string{
-			bucket.ModelID,
-			a.quotaPercent(bucket.RemainingPercent, false),
-			formatQuotaReset(bucket.ResetsAt),
-		}})
-	}
-	a.renderTable(a.Out, a.tableWidth(), columns, rows, "\n")
+	a.renderUsageGroupTable(groups)
 	return 0
 }
 
-type usageAllRow struct {
-	accountRow
-	Buckets []usage.Model `json:"buckets,omitempty"`
-	Lowest  *usage.Model  `json:"lowest,omitempty"`
+func (a *App) fetchUsageGroups(token *agy.TokenFile) (usage.Groups, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), usageGroupTimeout)
+	defer cancel()
+	return a.UsageGroups.FetchGroups(ctx, token)
+}
+
+type usageAccount struct {
+	row    accountRow
+	token  *agy.TokenFile
+	groups usage.Groups
+	err    error
 }
 
 func (a *App) cmdUsageAll() int {
-	if a.UsageFull == nil {
-		return a.failCode("quota_error", "Run `agy-auth list` for the shared quota summary.", "quota detail provider is unavailable")
+	if a.UsageGroups == nil {
+		return a.failCode("quota_error", "Try again later.", "quota group provider is unavailable")
 	}
 	reg, err := a.Store.Load()
 	if err != nil {
@@ -101,27 +97,72 @@ func (a *App) cmdUsageAll() int {
 		return a.failCode("account_not_found", "Run `agy-auth add` or `agy-auth login` first.", "no stored accounts")
 	}
 	rows := a.pickerRows(reg.Accounts, reg.Active, accountNumbers(reg))
-	failures := a.enrichUsageFull(rows)
+	accounts := make([]usageAccount, len(rows))
 	for i := range rows {
-		if rows[i].token == nil && rows[i].UsageError == "" {
-			rows[i].UsageError = "missing_auth"
-			if failures == nil {
-				failures = map[string]int{}
+		accounts[i].row = rows[i]
+		if rows[i].token == nil {
+			accounts[i].err = usage.ErrMissingAuth
+			continue
+		}
+		accounts[i].token = rows[i].token
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), usageGroupTimeout)
+	defer cancel()
+	jobs := make(chan int)
+	workers := usageGroupWorkers
+	if len(accounts) < workers {
+		workers = len(accounts)
+	}
+	var wait sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				if accounts[index].token == nil {
+					continue
+				}
+				groups, err := a.UsageGroups.FetchGroups(ctx, accounts[index].token)
+				accounts[index].groups = groups
+				accounts[index].err = err
 			}
-			failures["missing_auth"]++
+		}()
+	}
+	for i := range accounts {
+		if accounts[i].token != nil {
+			jobs <- i
 		}
 	}
+	close(jobs)
+	wait.Wait()
+
 	if !a.JSON {
+		failures := map[string]int{}
+		for i := range accounts {
+			if accounts[i].err != nil {
+				failures[usage.ShortError(accounts[i].err)]++
+			}
+		}
 		a.warnUsageFailures(failures)
 	}
 
 	if a.JSON {
-		payload := make([]usageAllRow, 0, len(rows))
-		for _, row := range rows {
-			item := usageAllRow{accountRow: row}
-			if row.detail != nil {
-				item.Buckets = row.detail.Buckets
-				item.Lowest = row.detail.Lowest()
+		payload := make([]map[string]any, 0, len(accounts))
+		for i := range accounts {
+			item := map[string]any{
+				"number": accounts[i].row.Number,
+				"id":     accounts[i].row.ID,
+				"email":  accounts[i].row.Email,
+				"alias":  accounts[i].row.Alias,
+				"active": accounts[i].row.Active,
+			}
+			if accounts[i].err == nil {
+				item["description"] = accounts[i].groups.Description
+				item["updated_at"] = accounts[i].groups.UpdatedAt
+				item["groups"] = accounts[i].groups.Groups
+			} else {
+				item["usage_error"] = usage.ShortError(accounts[i].err)
 			}
 			payload = append(payload, item)
 		}
@@ -131,45 +172,125 @@ func (a *App) cmdUsageAll() int {
 		return 0
 	}
 
+	a.renderUsageAllTable(accounts)
+	return 0
+}
+
+func (a *App) renderUsageAllTable(accounts []usageAccount) {
 	columns := []tableColumn{
 		{Header: "#", Min: 2, Max: 2, Priority: 0, Right: true, Required: true},
-		{Header: "ACCOUNT", Min: 12, Max: 40, Priority: 1, Required: true, Flex: true},
-		{Header: "PLAN", Min: 4, Max: 8, Priority: 2},
-		{Header: "5H", Min: 4, Max: 5, Priority: 3, Right: true},
-		{Header: "WEEKLY", Min: 6, Max: 10, Priority: 4, Right: true},
-		{Header: "LOWEST", Min: 6, Max: 6, Priority: 5, Right: true},
-		{Header: "MODEL", Min: 12, Max: 32, Priority: 6},
-		{Header: "RESETS", Min: 16, Max: 16, Priority: 7},
+		{Header: "ACCOUNT", Min: 16, Max: 36, Priority: 1, Required: true, Flex: true},
+		{Header: "GROUP", Min: 20, Max: 32, Priority: 2, Required: true},
+		{Header: "5H", Min: 5, Max: 5, Priority: 3, Right: true},
+		{Header: "5H RESET", Min: 16, Max: 16, Priority: 4},
+		{Header: "WEEKLY", Min: 8, Max: 8, Priority: 5, Right: true},
+		{Header: "WEEKLY RESET", Min: 16, Max: 16, Priority: 6},
 	}
-	tableRows := make([]tableRow, 0, len(rows))
-	for _, row := range rows {
-		label := row.displayName()
-		if row.Active {
+	rows := make([]tableRow, 0, len(accounts)*2)
+	for _, account := range accounts {
+		label := account.row.displayName()
+		if account.row.Active {
 			label = "* " + label
 		}
-		lowest := "-"
-		model := "-"
-		reset := "-"
-		if row.detail != nil {
-			if value := row.detail.Lowest(); value != nil {
-				lowest = a.quotaPercent(value.RemainingPercent, row.detail.Stale)
-				model = value.ModelID
-				reset = formatQuotaReset(value.ResetsAt)
-			}
+		number := fmt.Sprintf("%02d", account.row.Number)
+		if account.err != nil {
+			rows = append(rows, tableRow{Cells: []string{
+				number, label, "(usage unavailable: " + usage.ShortError(account.err) + ")", "-", "-", "-", "-",
+			}})
+			continue
 		}
-		tableRows = append(tableRows, tableRow{Cells: []string{
-			fmt.Sprintf("%02d", row.Number),
-			label,
-			a.planCell(row),
-			a.usageCell(row, false),
-			a.usageCell(row, true),
-			lowest,
-			model,
-			reset,
+		if len(account.groups.Groups) == 0 {
+			rows = append(rows, tableRow{Cells: []string{number, label, "(no quota groups returned)", "-", "-", "-", "-"}})
+			continue
+		}
+		for i, group := range account.groups.Groups {
+			rowNumber := ""
+			rowLabel := ""
+			if i == 0 {
+				rowNumber = number
+				rowLabel = label
+			}
+			five := groupBucket(group, "5h")
+			weekly := groupBucket(group, "weekly")
+			rows = append(rows, tableRow{Cells: []string{
+				rowNumber,
+				rowLabel,
+				group.Name,
+				a.groupPercent(five),
+				formatGroupReset(five),
+				a.groupPercent(weekly),
+				formatGroupReset(weekly),
+			}})
+		}
+	}
+	a.renderTable(a.Out, a.tableWidth(), columns, rows, "\n")
+}
+
+func (a *App) renderUsageGroupTable(groups usage.Groups) {
+	columns := []tableColumn{
+		{Header: "GROUP", Min: 20, Max: 32, Priority: 0, Required: true, Flex: true},
+		{Header: "5H", Min: 5, Max: 5, Priority: 1, Right: true},
+		{Header: "5H RESET", Min: 16, Max: 16, Priority: 2},
+		{Header: "WEEKLY", Min: 8, Max: 8, Priority: 3, Right: true},
+		{Header: "WEEKLY RESET", Min: 16, Max: 16, Priority: 4},
+	}
+	rows := make([]tableRow, 0, len(groups.Groups))
+	for _, group := range groups.Groups {
+		five := groupBucket(group, "5h")
+		weekly := groupBucket(group, "weekly")
+		rows = append(rows, tableRow{Cells: []string{
+			group.Name,
+			a.groupPercent(five),
+			formatGroupReset(five),
+			a.groupPercent(weekly),
+			formatGroupReset(weekly),
 		}})
 	}
-	a.renderTable(a.Out, a.tableWidth(), columns, tableRows, "\n")
-	return 0
+	a.renderTable(a.Out, a.tableWidth(), columns, rows, "\n")
+}
+
+func (a *App) groupPercent(bucket *usage.GroupBucket) string {
+	if bucket == nil {
+		return "-"
+	}
+	return a.quotaPercent(bucket.RemainingPercent, false)
+}
+
+func groupBucket(group usage.Group, window string) *usage.GroupBucket {
+	var best *usage.GroupBucket
+	for i := range group.Buckets {
+		bucket := &group.Buckets[i]
+		if normalizeUsageWindow(bucket.Window) != window {
+			continue
+		}
+		if best == nil || bucket.RemainingFraction < best.RemainingFraction {
+			best = bucket
+		}
+	}
+	return best
+}
+
+func normalizeUsageWindow(window string) string {
+	switch strings.ToLower(strings.TrimSpace(window)) {
+	case "5h", "5-hour", "five_hour", "five-hour":
+		return "5h"
+	case "weekly", "week":
+		return "weekly"
+	default:
+		return ""
+	}
+}
+
+func formatGroupReset(bucket *usage.GroupBucket) string {
+	if bucket == nil || strings.TrimSpace(bucket.ResetTime) == "" {
+		return "-"
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if parsed, err := time.Parse(layout, bucket.ResetTime); err == nil {
+			return parsed.Local().Format("2006-01-02 15:04")
+		}
+	}
+	return bucket.ResetTime
 }
 
 func (a *App) usageTarget(reg *registry.Registry, query string) (*registry.Account, *agy.TokenFile, int) {
@@ -227,7 +348,7 @@ func (a *App) quotaFailure(err error, label string) int {
 		code = "credential_error"
 		hint = "Sign in again with `agy-auth login`."
 	case errors.Is(err, usage.ErrForbidden), errors.Is(err, usage.ErrUnsupported):
-		hint = "This account may not expose per-model quota data."
+		hint = "This account may not expose quota data."
 	}
 	return a.failCode(code, hint, "could not fetch quota details for %s (%s)", label, usage.ShortError(err))
 }
@@ -242,11 +363,4 @@ func usageLabel(account *registry.Account, tokenFile *agy.TokenFile) string {
 		}
 	}
 	return "the live account"
-}
-
-func formatQuotaReset(value *time.Time) string {
-	if value == nil {
-		return "-"
-	}
-	return value.Local().Format("2006-01-02 15:04")
 }

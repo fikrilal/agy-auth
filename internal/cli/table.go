@@ -134,6 +134,9 @@ func fitTableColumns(width int, columns []tableColumn, rows []tableRow) ([]int, 
 		if column.Required {
 			chosen[i] = true
 			widths[i] = column.Min
+			if !column.Flex {
+				widths[i] = natural[i]
+			}
 		}
 	}
 	optional := make([]int, 0, len(columns))
