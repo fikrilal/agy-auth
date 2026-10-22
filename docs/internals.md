@@ -74,6 +74,9 @@ backups/registry-<timestamp>.json
   "version": 1,
   "active": "acct_...",
   "previous": "acct_...",
+  "config": {
+    "live_interval_seconds": 30
+  },
   "accounts": [
     {
       "id": "acct_...",
@@ -94,6 +97,8 @@ Account IDs are the first 10 hex characters of SHA-256 over the Google subject (
 The registry's `active` field is a hint. `list` and `status` treat the live credential as authoritative and match it against snapshots by subject first, then fingerprint, then a unique email.
 
 `previous` records the account that was active before the last switch (including `add`, `login`, and `import --activate`). `switch -` uses it; it is cleared when that account is removed, when the registry no longer contains it, or when it equals `active`.
+
+`config.live_interval_seconds` stores the live-view cadence. It is optional; missing or invalid values use 60 seconds. `config live --interval` accepts 5–3600 seconds, and `import --purge` carries the config forward.
 
 ## Display and numbering
 
@@ -122,15 +127,17 @@ Project lookup order:
 
 Plan labels use `paidTier` first, then `currentTier`: `free-tier` → Free, `standard-tier` → Standard, `g1-pro-tier` → Pro, `g1-ultra-tier` → Ultra; unknown IDs fall back to the tier name.
 
-If the access token is expired, `internal/usage` refreshes it through `internal/oauth` using the refresh token and the runtime-discovered Antigravity client. The refreshed token is used in memory only; snapshots are not rewritten. The provider caches successful snapshots for 60 seconds. On a later failure, the cached value is returned with `stale: true` and a short `usage_error` code.
+If the access token is expired, `internal/usage` refreshes it through `internal/oauth` using the refresh token and the runtime-discovered Antigravity client. The refreshed token is used in memory only; snapshots are not rewritten. The provider caches successful snapshots for 60 seconds by default, or the configured live interval while a live view is running. On a later failure, the cached value is returned with `stale: true` and a short `usage_error` code.
 
 `list` enriches rows concurrently with a bounded worker count and a 30-second overall budget. A quota failure never fails the command. `list --no-usage` skips the provider entirely.
 
+`agy-auth usage` uses `retrieveUserQuota` for model-level buckets. It resolves the live account first, then the active stored account, or one query-selected snapshot. The response is sorted by model ID and rendered with `MODEL`, `REMAINING`, and `RESETS`; JSON returns the account/email, plan, update time, and bucket array. This command is intentionally separate from `list` so the common list path stays at two requests per account instead of three.
+
 ## Live views
 
-`list --live`, `switch --live`, and `remove --live` use a raw-mode, alternate-screen controller. It repaints at 1 Hz, refreshes the live credential and registry every 60 seconds in the background, and uses a generation counter so an in-flight refresh cannot overwrite a newer switch/remove action.
+`list --live`, `switch --live`, and `remove --live` use a raw-mode, alternate-screen controller. It repaints at 1 Hz, refreshes the live credential and registry on the configured 5–3600 second cadence in the background, and uses a generation counter so an in-flight refresh cannot overwrite a newer switch/remove action.
 
-The first frame is built from local credential/registry data, then an asynchronous refresh adds quota data without blocking keys. The viewport keeps the selected row visible, pages with PgUp/PgDn, and preserves selection by account ID across refreshes. `switch --live` switches on Enter and stays open; `remove --live` toggles checkboxes with Space and removes checked accounts on Enter. `switch --live` also auto-switches once per session when the active account is at 0% on a fresh 5-hour or weekly window: it chooses a healthy stored account with the earliest reset. Stale quota data is never used for auto-switch. The status line reports the live source (`keyring`/`file`), the next refresh, and a quota-error count; the action line reports the last switch/remove result. `--live` requires a terminal and is rejected with `--json`.
+The first frame is built from local credential/registry data, then an asynchronous refresh adds quota data without blocking keys. The viewport keeps the selected row visible, pages with PgUp/PgDn, and preserves selection by account ID across refreshes. `switch --live` switches on Enter and stays open; `remove --live` toggles checkboxes with Space and removes checked accounts on Enter. `switch --live` also auto-switches once per session when the active account is at 0% on a fresh 5-hour or weekly window: it chooses a healthy stored account with the earliest reset. Stale quota data is never used for auto-switch. The status line reports the live source (`keyring`/`file`), the next refresh, and a quota-error count; the action line reports the last switch/remove result. The refresh cadence comes from `config.live_interval_seconds` (5–3600 seconds, default 60) and is also applied to the usage cache TTL. `--live` requires a terminal and is rejected with `--json`.
 
 ## Backups
 

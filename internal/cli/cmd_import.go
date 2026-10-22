@@ -174,6 +174,9 @@ func (a *App) purgeRegistry() int {
 
 	report := importReport{Files: []transferEvent{}, Imported: []registry.Account{}, Rebuilt: true}
 	reg := &registry.Registry{Version: registry.Version}
+	if old != nil && old.Config != nil {
+		reg.Config = old.Config
+	}
 	seen := map[string]bool{}
 	for _, file := range files {
 		event := transferEvent{Path: file}

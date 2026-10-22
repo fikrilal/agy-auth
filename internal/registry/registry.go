@@ -47,11 +47,23 @@ func (a Account) DisplayName() string {
 	}
 }
 
+type Config struct {
+	LiveIntervalSeconds int `json:"live_interval_seconds,omitempty"`
+}
+
 type Registry struct {
 	Version  int       `json:"version"`
 	Active   string    `json:"active,omitempty"`
 	Previous string    `json:"previous,omitempty"`
+	Config   *Config   `json:"config,omitempty"`
 	Accounts []Account `json:"accounts"`
+}
+
+func (r *Registry) LiveIntervalSeconds() int {
+	if r == nil || r.Config == nil {
+		return 0
+	}
+	return r.Config.LiveIntervalSeconds
 }
 
 type Store struct {

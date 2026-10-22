@@ -13,8 +13,6 @@ import (
 	"golang.org/x/term"
 )
 
-const liveDefaultInterval = 60 * time.Second
-
 type liveMode int
 
 const (
@@ -432,7 +430,11 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 	fmt.Fprint(a.Out, "\x1b[?1049h\x1b[?25l")
 	defer fmt.Fprint(a.Out, "\x1b[?25h\x1b[?1049l")
 
-	state := &liveState{checked: map[string]bool{}, interval: liveDefaultInterval}
+	interval := a.liveInterval()
+	if cache, ok := a.Usage.(*usage.Cache); ok {
+		cache.SetTTL(interval)
+	}
+	state := &liveState{checked: map[string]bool{}, interval: interval}
 	rows, source, loadErr := a.loadLiveRows(mode, false)
 	state.apply(rows, source, loadErr, a.now(), state.interval)
 	state.gen = 1

@@ -16,6 +16,7 @@ type tableColumn struct {
 	Priority int
 	Right    bool
 	Required bool
+	Flex     bool
 }
 
 type tableRow struct {
@@ -28,7 +29,7 @@ func accountTableLayout(rows []accountRow) ([]tableColumn, bool) {
 	base := []tableColumn{
 		{Header: "#", Min: 2, Max: 2, Priority: 0, Right: true, Required: true},
 		{Header: "", Min: 1, Max: 1, Priority: 0, Required: true},
-		{Header: "ACCOUNT", Min: 12, Max: 48, Priority: 1, Required: true},
+		{Header: "ACCOUNT", Min: 12, Max: 48, Priority: 1, Required: true, Flex: true},
 	}
 	status := []tableColumn{
 		{Header: "EXPIRES", Min: 7, Max: 14, Priority: 2},
@@ -155,22 +156,28 @@ func fitTableColumns(width int, columns []tableColumn, rows []tableRow) ([]int, 
 		}
 	}
 
-	accountIndex := 2
-	if accountIndex < len(columns) {
+	flexIndex := -1
+	for i, column := range columns {
+		if column.Flex {
+			flexIndex = i
+			break
+		}
+	}
+	if flexIndex >= 0 && flexIndex < len(columns) {
 		if total := chosenTotal(chosen, widths); total < width {
 			grow := width - total
-			if remaining := natural[accountIndex] - widths[accountIndex]; grow > remaining {
+			if remaining := natural[flexIndex] - widths[flexIndex]; grow > remaining {
 				grow = remaining
 			}
 			if grow > 0 {
-				widths[accountIndex] += grow
+				widths[flexIndex] += grow
 			}
 		} else if total > width {
 			over := total - width
-			if widths[accountIndex] > over+1 {
-				widths[accountIndex] -= over
+			if widths[flexIndex] > over+1 {
+				widths[flexIndex] -= over
 			} else {
-				widths[accountIndex] = 1
+				widths[flexIndex] = 1
 			}
 		}
 	}

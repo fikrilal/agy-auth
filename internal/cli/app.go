@@ -21,24 +21,25 @@ import (
 var Version = "0.1.0"
 
 type App struct {
-	In         io.Reader
-	Out        io.Writer
-	Err        io.Writer
-	Store      *registry.Store
-	Storage    *agy.Storage
-	Usage      usage.Provider
-	Now        func() time.Time
-	TTY        bool
-	OutTTY     bool
-	JSON       bool
-	NoColor    bool
-	Width      int
-	Height     int
-	Command    string
-	StdinFile  *os.File
-	StdoutFile *os.File
-	StderrFile *os.File
-	reader     *bufio.Reader
+	In          io.Reader
+	Out         io.Writer
+	Err         io.Writer
+	Store       *registry.Store
+	Storage     *agy.Storage
+	Usage       usage.Provider
+	UsageDetail usage.DetailProvider
+	Now         func() time.Time
+	TTY         bool
+	OutTTY      bool
+	JSON        bool
+	NoColor     bool
+	Width       int
+	Height      int
+	Command     string
+	StdinFile   *os.File
+	StdoutFile  *os.File
+	StderrFile  *os.File
+	reader      *bufio.Reader
 }
 
 func New() (*App, error) {
@@ -48,19 +49,21 @@ func New() (*App, error) {
 	}
 	storage := agy.DefaultStorage()
 	storage.Backup = backup.New(filepath.Join(store.Dir, "backups"))
+	usageClient := usage.NewClient(Version)
 	return &App{
-		In:         os.Stdin,
-		Out:        os.Stdout,
-		Err:        os.Stderr,
-		Store:      store,
-		Storage:    storage,
-		Usage:      usage.NewCache(usage.NewClient(Version)),
-		Now:        time.Now,
-		TTY:        term.IsTerminal(int(os.Stdin.Fd())),
-		OutTTY:     term.IsTerminal(int(os.Stdout.Fd())),
-		StdinFile:  os.Stdin,
-		StdoutFile: os.Stdout,
-		StderrFile: os.Stderr,
+		In:          os.Stdin,
+		Out:         os.Stdout,
+		Err:         os.Stderr,
+		Store:       store,
+		Storage:     storage,
+		Usage:       usage.NewCache(usageClient),
+		UsageDetail: usageClient,
+		Now:         time.Now,
+		TTY:         term.IsTerminal(int(os.Stdin.Fd())),
+		OutTTY:      term.IsTerminal(int(os.Stdout.Fd())),
+		StdinFile:   os.Stdin,
+		StdoutFile:  os.Stdout,
+		StderrFile:  os.Stderr,
 	}, nil
 }
 
@@ -112,6 +115,10 @@ func (a *App) Run(args []string) int {
 		return a.cmdPath(rest)
 	case "clean":
 		return a.cmdClean(rest)
+	case "config":
+		return a.cmdConfig(rest)
+	case "usage":
+		return a.cmdUsage(rest)
 	default:
 		return a.usageTop("unknown command %q", command)
 	}

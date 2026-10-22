@@ -2138,11 +2138,224 @@ func TestMaybeAutoSwitch(t *testing.T) {
 	}
 }
 
+type testDetailProvider struct {
+	detail usage.Detail
+	err    error
+	calls  int
+}
+
+func (p *testDetailProvider) FetchDetail(context.Context, *agy.TokenFile) (usage.Detail, error) {
+	p.calls++
+	return p.detail, p.err
+}
+
+func usageDetail() usage.Detail {
+	reset := testNow.Add(2 * time.Hour)
+	return usage.Detail{
+		Plan: "Pro",
+		Buckets: []usage.Model{
+			{ModelID: "gemini-2.5-pro", RemainingPercent: 94, ResetsAt: &reset, TokenType: "WTUS"},
+			{ModelID: "claude-opus-4-6-thinking", RemainingPercent: 100, ResetsAt: &reset, TokenType: "WTUS"},
+		},
+		UpdatedAt: testNow,
+	}
+}
+
+func TestUsageCommand(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	provider := &testDetailProvider{detail: usageDetail()}
+	app, out, errOut := env.app("")
+	app.Width = 100
+	app.UsageDetail = provider
+	if code := app.Run([]string{"usage"}); code != 0 {
+		t.Fatalf("usage exit = %d, stderr = %s", code, errOut)
+	}
+	for _, want := range []string{"Account:", "Plan: Pro", "MODEL", "gemini-2.5-pro", "94%", "2026-10-20"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("usage output missing %q: %q", want, out.String())
+		}
+	}
+
+	provider = &testDetailProvider{detail: usageDetail()}
+	app, out, errOut = env.app("")
+	app.UsageDetail = provider
+	if code := app.Run([]string{"usage", "personal", "--json"}); code != 0 {
+		t.Fatalf("usage json exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var payload struct {
+		Email   string            `json:"email"`
+		Plan    string            `json:"plan"`
+		Buckets []usage.Model     `json:"buckets"`
+		Account *registry.Account `json:"account"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Email != "user@example.com" || payload.Plan != "Pro" || len(payload.Buckets) != 2 {
+		t.Errorf("payload = %+v", payload)
+	}
+	if payload.Account == nil || payload.Account.Alias != "personal" {
+		t.Errorf("account = %+v", payload.Account)
+	}
+	if payload.Buckets[0].ModelID != "gemini-2.5-pro" || payload.Buckets[0].RemainingPercent != 94 {
+		t.Errorf("buckets = %+v", payload.Buckets)
+	}
+}
+
+func TestUsageCommandFallsBackToStoredAccount(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	if err := os.Remove(env.tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	provider := &testDetailProvider{detail: usageDetail()}
+	app, out, errOut := env.app("")
+	app.UsageDetail = provider
+	if code := app.Run([]string{"usage"}); code != 0 {
+		t.Fatalf("usage exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "user@example.com") || provider.calls != 1 {
+		t.Errorf("output = %q calls = %d", out.String(), provider.calls)
+	}
+}
+
+func TestUsageCommandNoCredential(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.UsageDetail = &testDetailProvider{detail: usageDetail()}
+	if code := app.Run([]string{"usage", "--json"}); code != 1 {
+		t.Fatalf("usage exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "credential_not_found" {
+		t.Errorf("error = %+v", envelope.Error)
+	}
+}
+
+func TestUsageCommandFetchFailure(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	app, out, _ := env.app("")
+	app.UsageDetail = &testDetailProvider{err: usage.ErrForbidden}
+	if code := app.Run([]string{"usage", "--json"}); code != 1 {
+		t.Fatalf("usage exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "quota_error" {
+		t.Fatalf("error = %+v", envelope.Error)
+	}
+	if !strings.Contains(envelope.Error.Message, "forbidden") {
+		t.Errorf("message = %q", envelope.Error.Message)
+	}
+}
+
+func TestConfigLiveInterval(t *testing.T) {
+	env := newTestEnv(t, false)
+	store := registry.NewStore(env.storeDir)
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"config", "live", "--json"}); code != 0 {
+		t.Fatalf("config get exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var setting struct {
+		Interval int `json:"live_interval_seconds"`
+	}
+	if err := json.Unmarshal(envelope.Data, &setting); err != nil {
+		t.Fatal(err)
+	}
+	if setting.Interval != 60 {
+		t.Errorf("default interval = %d", setting.Interval)
+	}
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"config", "live", "--interval", "15", "--json"}); code != 0 {
+		t.Fatalf("config set exit = %d, stderr = %s", code, errOut)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if err := json.Unmarshal(envelope.Data, &setting); err != nil {
+		t.Fatal(err)
+	}
+	if setting.Interval != 15 {
+		t.Errorf("set interval = %d", setting.Interval)
+	}
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.LiveIntervalSeconds() != 15 {
+		t.Errorf("stored interval = %d", reg.LiveIntervalSeconds())
+	}
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"config", "live"}); code != 0 {
+		t.Fatalf("config human exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "15s") {
+		t.Errorf("human output = %q", out.String())
+	}
+	app, _, _ = env.app("")
+	if interval := app.liveInterval(); interval != 15*time.Second {
+		t.Errorf("live interval = %s", interval)
+	}
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"config", "live", "--interval", "4", "--json"}); code != 2 {
+		t.Fatalf("invalid interval exit = %d, stderr = %s", code, errOut)
+	}
+	envelope = decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "usage" {
+		t.Errorf("invalid interval error = %+v", envelope.Error)
+	}
+	reg, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.LiveIntervalSeconds() != 15 {
+		t.Errorf("invalid interval changed registry to %d", reg.LiveIntervalSeconds())
+	}
+}
+
+func TestConfigLiveIntervalSurvivesPurge(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"config", "live", "--interval", "30"}); code != 0 {
+		t.Fatalf("config exit = %d, stderr = %s", code, errOut)
+	}
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"import", "--purge"}); code != 0 {
+		t.Fatalf("purge exit = %d, stderr = %s", code, errOut)
+	}
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.LiveIntervalSeconds() != 30 {
+		t.Errorf("purge lost interval: %d", reg.LiveIntervalSeconds())
+	}
+}
+
 func TestEveryCommandHasHelp(t *testing.T) {
 	env := newTestEnv(t, false)
 	commands := []string{
 		"list", "add", "login", "switch", "remove", "alias",
-		"status", "current", "import", "export", "path", "clean", "version",
+		"status", "current", "usage", "import", "export", "path", "clean", "config", "version",
 	}
 	for _, command := range commands {
 		app, out, errOut := env.app("")

@@ -140,6 +140,17 @@ var commandSpecs = []CommandSpec{
 			"state, and whether agy is currently running.",
 	},
 	{
+		Name:     "usage",
+		Group:    "Account management",
+		Synopsis: "usage [query]",
+		Summary:  "Show per-model quota details",
+		Usage:    []string{"agy-auth usage [<query>]"},
+		Description: "Show per-model quota buckets for the live account, the active stored account,\n" +
+			"or one account selected by query. The shared 5H/weekly summary is shown by\n" +
+			"`agy-auth list`; this view includes model-level buckets such as Gemini.",
+		Examples: []string{"agy-auth usage", "agy-auth usage work", "agy-auth usage --json"},
+	},
+	{
 		Name:     "import",
 		Group:    "Import and export",
 		Synopsis: "import <path> | --purge",
@@ -197,6 +208,18 @@ var commandSpecs = []CommandSpec{
 			{Flag: "--dry-run", Description: "Show what would be removed"},
 		},
 		Examples: []string{"agy-auth clean --dry-run", "agy-auth clean"},
+	},
+	{
+		Name:     "config",
+		Group:    "Other",
+		Synopsis: "config live [--interval <seconds>]",
+		Summary:  "Show or set live refresh settings",
+		Usage:    []string{"agy-auth config live [--interval <seconds>]"},
+		Description: "Show the effective live refresh interval, or set it to 5-3600 seconds.\n" +
+			"The setting is stored in registry.json and applies to the live refresh loop and\n" +
+			"the quota cache.",
+		Options:  []OptionSpec{{Flag: "--interval <seconds>", Description: "Live refresh interval (5-3600)"}},
+		Examples: []string{"agy-auth config live", "agy-auth config live --interval 30"},
 	},
 	{
 		Name:        "version",

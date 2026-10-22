@@ -14,11 +14,13 @@ All notable changes to this project are documented here.
 - `agy-auth import --purge` to rebuild `registry.json` from stored snapshots, carrying aliases and active/previous where possible.
 - Shared active-first/email ordering and `01`-style row numbers across list, pickers, numeric queries, and JSON list output.
 - Width-aware tables that truncate account names and drop lower-priority columns; same-email accounts are grouped under a header with indented, numbered children.
-- Live views for `list`, `switch`, and `remove`: 1 Hz repaint, 60-second background refresh, viewport paging, status/action lines, switch-on-Enter, and checkbox removal.
-- Plan and shared 5-hour/weekly quota columns in `list` and the live views, backed by the Antigravity Code Assist quota API with a 60-second cache and stale-value fallback.
+- Live views for `list`, `switch`, and `remove`: 1 Hz repaint, configurable background refresh, viewport paging, status/action lines, switch-on-Enter, and checkbox removal.
+- Plan and shared 5-hour/weekly quota columns in `list` and the live views, backed by the Antigravity Code Assist quota API with a 60-second cache (or the live interval) and stale-value fallback.
 - `list --no-usage` to skip quota lookups.
 - `switch --live` auto-switch when the active account is at 0% on a fresh 5-hour or weekly window, choosing the healthy stored account with the earliest reset.
 - List JSON rows now include `plan`, `usage`, and `usage_error`.
+- `agy-auth usage [<query>]` for per-model quota buckets, including Gemini models omitted by the shared summary.
+- `agy-auth config live [--interval <seconds>]` with a 5–3600 second live refresh cadence stored in `registry.json`; `import --purge` preserves it.
 
 ### Changed
 
@@ -38,6 +40,7 @@ All notable changes to this project are documented here.
 - Alias messages distinguish set, already set, updated, and cleared.
 - Credential and registry writes are write-if-changed and re-harden permissions.
 - Expired access tokens are refreshed in memory for quota lookups through the discovered Antigravity OAuth client; snapshots are not rewritten.
+- The live refresh interval and live usage-cache TTL are configurable instead of fixed at 60 seconds.
 
 ## [0.1.0] - 2026-10-20
 

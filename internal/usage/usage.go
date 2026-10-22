@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +57,23 @@ type Snapshot struct {
 
 type Provider interface {
 	Fetch(ctx context.Context, key string, token *agy.TokenFile) (Snapshot, error)
+}
+
+type Model struct {
+	ModelID          string     `json:"model_id"`
+	RemainingPercent int        `json:"remaining_percent"`
+	ResetsAt         *time.Time `json:"resets_at,omitempty"`
+	TokenType        string     `json:"token_type,omitempty"`
+}
+
+type Detail struct {
+	Plan      string    `json:"-"`
+	Buckets   []Model   `json:"buckets"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type DetailProvider interface {
+	FetchDetail(ctx context.Context, token *agy.TokenFile) (Detail, error)
 }
 
 type Client struct {
@@ -106,22 +124,89 @@ func DefaultUserAgent(version string) string {
 }
 
 func (c *Client) Fetch(ctx context.Context, _ string, token *agy.TokenFile) (Snapshot, error) {
-	if token == nil {
-		return Snapshot{}, ErrMissingAuth
+	accessToken, err := c.accessToken(ctx, token)
+	if err != nil {
+		return Snapshot{}, err
 	}
-	now := c.now()
+	project, assist, err := c.loadCodeAssist(ctx, accessToken)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	snapshot := Snapshot{Plan: planLabel(assist), UpdatedAt: c.now().UTC()}
+	var summary quotaSummaryResponse
+	status, err := c.post(ctx, "retrieveUserQuotaSummary", quotaSummaryRequest{Project: project}, accessToken, &summary)
+	if err != nil {
+		return snapshot, err
+	}
+	if status < http.StatusOK || status > 299 {
+		return snapshot, statusError(status)
+	}
+	applySummary(&snapshot, summary)
+	return snapshot, nil
+}
+
+func (c *Client) FetchDetail(ctx context.Context, token *agy.TokenFile) (Detail, error) {
+	accessToken, err := c.accessToken(ctx, token)
+	if err != nil {
+		return Detail{}, err
+	}
+	project, assist, err := c.loadCodeAssist(ctx, accessToken)
+	if err != nil {
+		return Detail{}, err
+	}
+
+	var quota quotaResponse
+	status, err := c.post(ctx, "retrieveUserQuota", quotaRequest{Project: project}, accessToken, &quota)
+	if err != nil {
+		return Detail{}, err
+	}
+	if status < http.StatusOK || status > 299 {
+		return Detail{}, statusError(status)
+	}
+	detail := Detail{Plan: planLabel(assist), Buckets: []Model{}, UpdatedAt: c.now().UTC()}
+	for _, bucket := range quota.Buckets {
+		if strings.TrimSpace(bucket.ModelID) == "" || bucket.RemainingFraction == nil {
+			continue
+		}
+		model := Model{
+			ModelID:          bucket.ModelID,
+			RemainingPercent: percent(*bucket.RemainingFraction),
+			TokenType:        bucket.TokenType,
+		}
+		if reset, ok := parseReset(bucket.ResetTime); ok {
+			model.ResetsAt = &reset
+		}
+		detail.Buckets = append(detail.Buckets, model)
+	}
+	sort.Slice(detail.Buckets, func(i, j int) bool {
+		if detail.Buckets[i].ModelID != detail.Buckets[j].ModelID {
+			return detail.Buckets[i].ModelID < detail.Buckets[j].ModelID
+		}
+		return detail.Buckets[i].TokenType < detail.Buckets[j].TokenType
+	})
+	return detail, nil
+}
+
+func (c *Client) accessToken(ctx context.Context, token *agy.TokenFile) (string, error) {
+	if token == nil {
+		return "", ErrMissingAuth
+	}
 	accessToken := strings.TrimSpace(token.Token.AccessToken)
-	if accessToken == "" || token.Expired(now.Add(30*time.Second)) {
+	if accessToken == "" || token.Expired(c.now().Add(30*time.Second)) {
 		refreshed, _, err := c.refresh(ctx, token)
 		if err != nil {
-			return Snapshot{}, err
+			return "", err
 		}
 		accessToken = refreshed
 	}
 	if accessToken == "" {
-		return Snapshot{}, ErrMissingAuth
+		return "", ErrMissingAuth
 	}
+	return accessToken, nil
+}
 
+func (c *Client) loadCodeAssist(ctx context.Context, accessToken string) (string, codeAssistResponse, error) {
 	project := strings.TrimSpace(c.ProjectID)
 	if project == "" {
 		project = FallbackProjectID
@@ -137,23 +222,12 @@ func (c *Client) Fetch(ctx context.Context, _ string, token *agy.TokenFile) (Sna
 		},
 	}, accessToken, &assist)
 	if err != nil {
-		return Snapshot{}, err
+		return project, codeAssistResponse{}, err
 	}
 	if status < http.StatusOK || status > 299 {
-		return Snapshot{}, statusError(status)
+		return project, codeAssistResponse{}, statusError(status)
 	}
-
-	snapshot := Snapshot{Plan: planLabel(assist), UpdatedAt: now.UTC()}
-	var summary quotaSummaryResponse
-	status, err = c.post(ctx, "retrieveUserQuotaSummary", quotaSummaryRequest{Project: project}, accessToken, &summary)
-	if err != nil {
-		return snapshot, err
-	}
-	if status < http.StatusOK || status > 299 {
-		return snapshot, statusError(status)
-	}
-	applySummary(&snapshot, summary)
-	return snapshot, nil
+	return project, assist, nil
 }
 
 func (c *Client) post(ctx context.Context, method string, body any, accessToken string, out any) (int, error) {
@@ -352,9 +426,18 @@ func (c *Cache) Fetch(ctx context.Context, key string, token *agy.TokenFile) (Sn
 	return snapshot, nil
 }
 
+func (c *Cache) SetTTL(ttl time.Duration) {
+	c.mu.Lock()
+	c.TTL = ttl
+	c.mu.Unlock()
+}
+
 func (c *Cache) ttl() time.Duration {
-	if c.TTL > 0 {
-		return c.TTL
+	c.mu.Lock()
+	ttl := c.TTL
+	c.mu.Unlock()
+	if ttl > 0 {
+		return ttl
 	}
 	return DefaultTTL
 }
@@ -393,6 +476,19 @@ type quotaSummaryRequest struct {
 	Project string `json:"project,omitempty"`
 }
 
+type quotaRequest struct {
+	Project string `json:"project,omitempty"`
+}
+
+type quotaResponse struct {
+	Buckets []struct {
+		TokenType         string   `json:"tokenType"`
+		ModelID           string   `json:"modelId"`
+		RemainingFraction *float64 `json:"remainingFraction"`
+		ResetTime         string   `json:"resetTime"`
+	} `json:"buckets"`
+}
+
 type quotaSummaryResponse struct {
 	Groups []struct {
 		Buckets []struct {
@@ -414,14 +510,7 @@ func applySummary(snapshot *Snapshot, summary quotaSummaryResponse) {
 			if window == "" {
 				continue
 			}
-			fraction := *bucket.RemainingFraction
-			if fraction < 0 {
-				fraction = 0
-			}
-			if fraction > 1 {
-				fraction = 1
-			}
-			candidate := Window{RemainingPercent: int(math.Round(fraction * 100))}
+			candidate := Window{RemainingPercent: percent(*bucket.RemainingFraction)}
 			if reset, ok := parseReset(bucket.ResetTime); ok {
 				candidate.ResetsAt = &reset
 			}
@@ -433,6 +522,16 @@ func applySummary(snapshot *Snapshot, summary quotaSummaryResponse) {
 			}
 		}
 	}
+}
+
+func percent(fraction float64) int {
+	if fraction < 0 {
+		fraction = 0
+	}
+	if fraction > 1 {
+		fraction = 1
+	}
+	return int(math.Round(fraction * 100))
 }
 
 func bucketWindow(window, bucketID string) string {

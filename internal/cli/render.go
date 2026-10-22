@@ -212,7 +212,10 @@ func (a *App) usageCell(row accountRow, weekly bool) string {
 	if window == nil {
 		return "-"
 	}
-	percent := window.RemainingPercent
+	return a.quotaPercent(window.RemainingPercent, snapshot.Stale)
+}
+
+func (a *App) quotaPercent(percent int, stale bool) string {
 	if percent < 0 {
 		percent = 0
 	}
@@ -220,7 +223,7 @@ func (a *App) usageCell(row accountRow, weekly bool) string {
 		percent = 100
 	}
 	value := fmt.Sprintf("%d%%", percent)
-	if snapshot.Stale {
+	if stale {
 		value += "*"
 	}
 	switch {
