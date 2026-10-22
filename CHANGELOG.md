@@ -43,6 +43,7 @@ All notable changes to this project are documented here.
 - Credential and registry writes are write-if-changed and re-harden permissions.
 - Expired access tokens are refreshed in memory for quota lookups through the discovered Antigravity OAuth client; snapshots are not rewritten.
 - The live refresh interval and live usage-cache TTL are configurable instead of fixed at 60 seconds.
+- `login --via-agy` now runs in an isolated temporary home and imports the credential only after successful sign-in; cancel/failure leaves the active account untouched.
 
 ## [0.1.0] - 2026-10-20
 

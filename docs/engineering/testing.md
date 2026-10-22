@@ -40,6 +40,7 @@ Use `make verify-full` for changes that touch concurrency, credential storage, r
 - Real keyring reads/writes in CI.
 - Live quota API calls in CI; `internal/usage` uses `httptest`, and CLI usage tests inject fake providers.
 - Live visual assertions that are better reviewed by a human. Real-account `list --active --no-sync`, `usage`, and PTY live checks are manual.
+- `login --via-agy` uses a fake `agy` script in tests (success/cancel/failure/invalid-token) and asserts the real credential is unchanged on failure.
 
 ## Adding tests
 

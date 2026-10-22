@@ -1857,6 +1857,145 @@ func TestLoginReusesStoredRefreshToken(t *testing.T) {
 	}
 }
 
+func fakeAgyLogin(t *testing.T, token []byte, exitCode int) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "agy")
+	script := "#!/bin/sh\n"
+	if token != nil {
+		script += "mkdir -p \"$HOME/.gemini/antigravity-cli\"\n"
+		script += "cat > \"$HOME/.gemini/antigravity-cli/antigravity-oauth-token\" <<'TOKEN'\n"
+		script += string(token) + "\nTOKEN\n"
+	}
+	script += fmt.Sprintf("exit %d\n", exitCode)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func loginTestApp(t *testing.T, env *testEnv) (*App, *bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	app, out, errOut := env.app("")
+	app.TTY = true
+	stdin, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		stdin.Close()
+		stdout.Close()
+		stderr.Close()
+	})
+	app.StdinFile = stdin
+	app.StdoutFile = stdout
+	app.StderrFile = stderr
+	return app, out, errOut
+}
+
+func TestLoginViaAgyImportsIntoRealStorage(t *testing.T) {
+	env := newTestEnv(t, true)
+	script := fakeAgyLogin(t, makeCLIToken(t, "second@example.com", "subject-2", "refresh-2"), 0)
+	app, out, errOut := loginTestApp(t, env)
+	if code := app.Run([]string{"login", "--via-agy", "--agy", script, "--alias", "second", "--json"}); code != 0 {
+		t.Fatalf("login exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	var payload struct {
+		Account registry.Account `json:"account"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Account.Email != "second@example.com" || payload.Account.Alias != "second" {
+		t.Errorf("account = %+v", payload.Account)
+	}
+
+	raw, err := os.ReadFile(env.tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := agy.ParseTokenFile(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live.Email() != "second@example.com" {
+		t.Errorf("live credential = %q", live.Email())
+	}
+	reg, err := registry.NewStore(env.storeDir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 2 || reg.Active != payload.Account.ID {
+		t.Errorf("registry = %+v active=%q", reg.Accounts, reg.Active)
+	}
+}
+
+func TestLoginViaAgyFailureLeavesActiveUntouched(t *testing.T) {
+	env := newTestEnv(t, true)
+	before, err := os.ReadFile(env.tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		code int
+	}{
+		{"cancel", 0},
+		{"error", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			script := fakeAgyLogin(t, nil, test.code)
+			app, out, _ := loginTestApp(t, env)
+			if code := app.Run([]string{"login", "--via-agy", "--agy", script, "--json"}); code != 1 {
+				t.Fatalf("login exit = %d", code)
+			}
+			envelope := decodeTestEnvelope(t, out)
+			if envelope.Error == nil || envelope.Error.Code != "credential_not_found" {
+				t.Fatalf("error = %+v", envelope.Error)
+			}
+			after, err := os.ReadFile(env.tokenPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Error("active credential changed on failed login")
+			}
+		})
+	}
+}
+
+func TestLoginViaAgyInvalidTokenLeavesActiveUntouched(t *testing.T) {
+	env := newTestEnv(t, true)
+	before, err := os.ReadFile(env.tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := fakeAgyLogin(t, []byte(`{"token":{}}`), 0)
+	app, out, _ := loginTestApp(t, env)
+	if code := app.Run([]string{"login", "--via-agy", "--agy", script, "--json"}); code != 1 {
+		t.Fatalf("login exit = %d", code)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Error == nil || envelope.Error.Code != "credential_error" {
+		t.Fatalf("error = %+v", envelope.Error)
+	}
+	after, err := os.ReadFile(env.tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("active credential changed on invalid login")
+	}
+}
+
 func TestListActiveWithoutLiveCredential(t *testing.T) {
 	env := newTestEnv(t, true)
 	app, _, _ := env.app("")

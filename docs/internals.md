@@ -199,6 +199,8 @@ The login flow uses the public Antigravity/Gemini OAuth client embedded in the a
 
 The callback page displays the authorization code in a copyable box. It removes `code` from the address bar but keeps `state`. `agy-auth` accepts a bare code or a callback URL and validates `state` when present.
 
+`login --via-agy` runs the installed `agy` in a temporary `HOME` with `DBUS_SESSION_BUS_ADDRESS`/`XDG_RUNTIME_DIR` cleared so it uses file storage, not the live keyring. The temporary credential is parsed and imported only after agy exits; the real keyring/file credential is written after the registry update. Canceling or failing the agy flow leaves the real active credential untouched, and the temporary home is removed.
+
 The token exchange sends `client_id`, `client_secret`, `code`, `code_verifier`, `grant_type=authorization_code`, and `redirect_uri`.
 
 `oauth.Refresh` uses the same client with `grant_type=refresh_token` and preserves the stored refresh token when Google does not return a replacement. Usage lookups use it for expired access tokens; the refreshed token is not written back to the snapshot.

@@ -67,7 +67,7 @@ var commandSpecs = []CommandSpec{
 			{Flag: "--alias <alias>", Description: "Short name used by switch/remove queries"},
 			{Flag: "--auth-method <name>", Description: "Stored auth_method value (default \"consumer\")"},
 			{Flag: "--no-browser", Description: "Only print the authorization URL"},
-			{Flag: "--via-agy", Description: "Clear agy credentials and let agy perform sign-in"},
+			{Flag: "--via-agy", Description: "Run agy in an isolated login directory; import only on success"},
 			{Flag: "--agy <path>", Description: "agy executable for OAuth client discovery or --via-agy (default: search PATH)"},
 		},
 		Examples: []string{"agy-auth login --alias work"},

@@ -195,7 +195,7 @@ If you prefer to let `agy` handle sign-in:
 agy-auth login --via-agy
 ```
 
-This saves the current account, clears the live credential, launches `agy`, and captures the new credential after agy exits.
+This saves the current account, runs `agy` in an isolated temporary home with file-based credential storage, and imports the resulting credential only after sign-in succeeds. Your active credential is left untouched if you cancel or sign-in fails.
 
 ## JSON output
 

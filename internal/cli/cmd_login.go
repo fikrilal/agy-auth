@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -130,27 +132,6 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 			fmt.Fprintf(a.promptWriter(), "Saved current account %s.\n", result.Account.DisplayName())
 		}
 	}
-	if count := runningAgyCount(); count > 0 {
-		answer, err := a.readLine(fmt.Sprintf("%d agy process(es) are running. Close them before signing in. Continue? [y/N]: ", count))
-		if err != nil || !isYes(answer) {
-			return 1
-		}
-	}
-	if err := a.Storage.Delete(); err != nil {
-		a.warn("could not fully clear existing credentials: %v", err)
-	}
-	if remaining, err := a.Storage.Read(); err == nil {
-		name := ""
-		if tokenFile, parseErr := agy.ParseTokenFile(remaining.Raw); parseErr == nil {
-			name = tokenFile.Email()
-		}
-		if name == "" {
-			name = "(unknown account)"
-		}
-		return a.failCode("state_conflict", "Sign out in agy first.", "agy is still signed in as %s and its credential could not be cleared", name)
-	} else if !errors.Is(err, agy.ErrNoCredentials) {
-		a.warn("could not verify that credentials were cleared: %v", err)
-	}
 
 	binary := agyPath
 	if binary == "" {
@@ -160,32 +141,96 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 		}
 		binary = found
 	}
-
 	if a.StdinFile == nil || a.StdoutFile == nil || a.StderrFile == nil {
 		return a.usageFor("login", "interactive terminal unavailable for --via-agy")
 	}
+
+	home, err := os.MkdirTemp("", "agy-auth-login-*")
+	if err != nil {
+		return a.failCode("credential_error", "Check that the temporary directory is writable.", "could not create an isolated login directory")
+	}
+	defer os.RemoveAll(home)
+	tokenPath := filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		return a.failCode("credential_error", "Check that the temporary directory is writable.", "could not prepare the isolated login directory")
+	}
+
 	command := exec.Command(binary)
+	command.Dir = home
+	command.Env = isolatedAgyEnv(home)
 	command.Stdin = a.StdinFile
 	command.Stdout = a.StdoutFile
 	command.Stderr = a.StderrFile
-	fmt.Fprintln(a.promptWriter(), "Starting agy. Sign in with the account you want to add, then quit agy.")
+	fmt.Fprintln(a.promptWriter(), "Starting agy in an isolated login directory. Your current account will not be changed unless sign-in succeeds.")
 	runErr := command.Run()
-	if runErr != nil {
-		fmt.Fprintln(a.promptWriter(), "agy exited with an error; checking for a credential anyway.")
-	}
 
-	read, err := a.Storage.Read()
-	if errors.Is(err, agy.ErrNoCredentials) {
-		return a.failCode("credential_not_found", "The previous account is still stored; run `agy-auth list` to see it.", "agy did not leave a credential")
+	raw, err := os.ReadFile(tokenPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return a.failCode("credential_not_found", "Your previous active account was not changed. Run `agy-auth list` to verify it.", "agy did not leave a credential in the isolated login directory")
 	}
 	if err != nil {
-		return a.failCode("credential_error", "Run `agy-auth status` to check keyring and file-mirror access.", "could not read the agy credential")
+		return a.failCode("credential_error", "Your previous active account was not changed. Check temporary directory permissions.", "could not read the isolated agy credential")
 	}
-	result, err := a.Store.Upsert(read.Raw, alias, true)
+	tokenFile, err := agy.ParseTokenFile(raw)
+	if err != nil {
+		return a.failCode("credential_error", "Your previous active account was not changed. Sign in again with agy.", "the isolated agy credential is invalid")
+	}
+
+	result, err := a.Store.Upsert(raw, alias, true)
 	if err != nil {
 		return a.registryFailure(err, "could not save the new account")
 	}
-	return a.finishLogin(result, agy.WriteReport{Written: []agy.Source{read.Source}}, nil)
+	report := a.Storage.Write(raw)
+	if !report.OK() {
+		if errors.Is(report.Error(), agy.ErrBackup) {
+			return a.failCode("backup_error", fmt.Sprintf("The account is saved; fix backup permissions and run `agy-auth switch %s`.", result.Account.ID), "could not back up the current agy credential")
+		}
+		return a.errorDoc(1, ErrorDoc{
+			Code:    "state_uncertain",
+			Message: "the account was saved, but the agy credential could not be written",
+			Hint:    fmt.Sprintf("Run `agy-auth switch %s` after fixing credential storage.", result.Account.ID),
+		})
+	}
+	var warnings []string
+	if err := report.Error(); err != nil {
+		warnings = append(warnings, err.Error())
+	}
+	if runErr != nil {
+		warnings = append(warnings, "agy exited with an error; imported the credential it left behind")
+	}
+	if !tokenFile.HasRefreshToken() {
+		warnings = append(warnings, "the new snapshot has no refresh token; it will stop working when the access token expires")
+	}
+	if result.Account.Email == "" {
+		warnings = append(warnings, "the ID token did not include an email address")
+	}
+	return a.finishLogin(result, report, warnings)
+}
+
+func isolatedAgyEnv(home string) []string {
+	result := make([]string, 0, len(os.Environ())+6)
+	for _, entry := range os.Environ() {
+		switch {
+		case strings.HasPrefix(entry, "HOME="),
+			strings.HasPrefix(entry, "USERPROFILE="),
+			strings.HasPrefix(entry, "DBUS_SESSION_BUS_ADDRESS="),
+			strings.HasPrefix(entry, "XDG_RUNTIME_DIR="),
+			strings.HasPrefix(entry, "XDG_CONFIG_HOME="),
+			strings.HasPrefix(entry, "XDG_CACHE_HOME="):
+			continue
+		default:
+			result = append(result, entry)
+		}
+	}
+	return append(result,
+		"HOME="+home,
+		"USERPROFILE="+home,
+		"DBUS_SESSION_BUS_ADDRESS=",
+		"XDG_RUNTIME_DIR=",
+		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"XDG_CACHE_HOME="+filepath.Join(home, ".cache"),
+		"AGY_CLI_DISABLE_AUTO_UPDATE=1",
+	)
 }
 
 func (a *App) existingRefreshToken(tokenFile agy.TokenFile) string {
