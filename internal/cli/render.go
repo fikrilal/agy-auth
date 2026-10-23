@@ -147,7 +147,7 @@ func (a *App) renderAccountTable(rows []accountRow, now time.Time, highlight int
 	a.renderTable(a.Out, width, columns, tableRows, newline)
 }
 
-func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, indent, withUsage bool) tableRow {
+func (a *App) accountTableRow(row accountRow, _ time.Time, checked *bool, indent, withUsage bool) tableRow {
 	number := "-"
 	if row.Number > 0 {
 		number = fmt.Sprintf("%02d", row.Number)
@@ -172,26 +172,15 @@ func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, inde
 	}
 	cells := []string{number, marker, account}
 	if withUsage {
-		cells = append(cells, a.planCell(row), a.usageCell(row, false), a.usageCell(row, true), a.limitGroupCell(row))
+		cells = append(cells,
+			a.planCell(row),
+			a.usageCell(row, false),
+			a.usageCell(row, true),
+			a.limitGroupCell(row),
+			a.resetCell(row, false),
+			a.resetCell(row, true),
+		)
 	}
-	method := row.AuthMethod
-	if method == "" {
-		method = "-"
-	}
-	expiry := "-"
-	if row.ExpiresAt != nil {
-		expiry = humanUntil(*row.ExpiresAt, now)
-		if row.Expired {
-			expiry = a.red("expired")
-		} else if row.ExpiresAt.Sub(now) < 24*time.Hour {
-			expiry = a.yellow(expiry)
-		}
-	}
-	last := "-"
-	if row.LastUsedAt != nil {
-		last = row.LastUsedAt.Format("2006-01-02")
-	}
-	cells = append(cells, expiry, method, last)
 	return tableRow{Cells: cells}
 }
 
@@ -210,6 +199,20 @@ func (a *App) limitGroupCell(row accountRow) string {
 		return group
 	}
 	return "-"
+}
+
+func (a *App) resetCell(row accountRow, weekly bool) string {
+	if row.Usage == nil {
+		return "-"
+	}
+	window := row.Usage.FiveHour
+	if weekly {
+		window = row.Usage.Weekly
+	}
+	if window == nil || window.ResetsAt == nil {
+		return "-"
+	}
+	return window.ResetsAt.Local().Format("2006-01-02 15:04")
 }
 
 func (a *App) usageCell(row accountRow, weekly bool) string {

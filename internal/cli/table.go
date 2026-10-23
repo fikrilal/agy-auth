@@ -23,6 +23,7 @@ type tableRow struct {
 	Cells     []string
 	Group     string
 	Highlight bool
+	Spacer    bool
 }
 
 func accountTableLayout(rows []accountRow) ([]tableColumn, bool) {
@@ -30,11 +31,6 @@ func accountTableLayout(rows []accountRow) ([]tableColumn, bool) {
 		{Header: "#", Min: 2, Max: 2, Priority: 0, Right: true, Required: true},
 		{Header: "", Min: 1, Max: 1, Priority: 0, Required: true},
 		{Header: "ACCOUNT", Min: 12, Max: 48, Priority: 1, Required: true, Flex: true},
-	}
-	status := []tableColumn{
-		{Header: "EXPIRES", Min: 7, Max: 14, Priority: 2},
-		{Header: "METHOD", Min: 6, Max: 10, Priority: 3},
-		{Header: "LAST", Min: 10, Max: 10, Priority: 4},
 	}
 	for _, row := range rows {
 		if row.Plan == "" && row.Usage == nil {
@@ -46,14 +42,12 @@ func accountTableLayout(rows []accountRow) ([]tableColumn, bool) {
 			tableColumn{Header: "5H", Min: 4, Max: 5, Priority: 3, Right: true},
 			tableColumn{Header: "WEEKLY", Min: 6, Max: 10, Priority: 4, Right: true},
 			tableColumn{Header: "GROUP", Min: 12, Max: 24, Priority: 5},
+			tableColumn{Header: "5H RESET", Min: 16, Max: 16, Priority: 6},
+			tableColumn{Header: "WEEKLY RESET", Min: 16, Max: 16, Priority: 7},
 		)
-		for _, column := range status {
-			column.Priority += 4
-			columns = append(columns, column)
-		}
 		return columns, true
 	}
-	return append(base, status...), false
+	return base, false
 }
 
 func (a *App) tableWidth() int {
@@ -92,6 +86,10 @@ func (a *App) renderTableRows(out io.Writer, width int, columns []tableColumn, w
 	}
 	a.writeTableRow(out, columns, selected, widths, headers, false, newline)
 	for _, row := range rows {
+		if row.Spacer {
+			fmt.Fprint(out, newline)
+			continue
+		}
 		if row.Group != "" {
 			fmt.Fprint(out, row.Group+newline)
 			continue
@@ -112,7 +110,7 @@ func fitTableColumns(width int, columns []tableColumn, rows []tableRow) ([]int, 
 		}
 	}
 	for _, row := range rows {
-		if row.Group != "" {
+		if row.Group != "" || row.Spacer {
 			continue
 		}
 		for i := range columns {

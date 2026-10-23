@@ -186,8 +186,11 @@ func (a *App) renderUsageAllTable(accounts []usageAccount) {
 		{Header: "WEEKLY", Min: 8, Max: 8, Priority: 5, Right: true},
 		{Header: "WEEKLY RESET", Min: 16, Max: 16, Priority: 6},
 	}
-	rows := make([]tableRow, 0, len(accounts)*2)
-	for _, account := range accounts {
+	rows := make([]tableRow, 0, len(accounts)*3)
+	for accountIndex, account := range accounts {
+		if accountIndex > 0 {
+			rows = append(rows, tableRow{Spacer: true})
+		}
 		label := account.row.displayName()
 		if account.row.Active {
 			label = "* " + label

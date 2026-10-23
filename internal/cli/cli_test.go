@@ -1272,24 +1272,30 @@ func TestRenderAccountTableNarrow(t *testing.T) {
 	if !strings.Contains(out.String(), "…") {
 		t.Errorf("expected truncated account: %q", out.String())
 	}
-	if strings.Contains(out.String(), "METHOD") || strings.Contains(out.String(), "LAST") {
-		t.Errorf("narrow table kept low-priority columns: %q", out.String())
+	for _, unwanted := range []string{"EXPIRES", "METHOD", "LAST"} {
+		if strings.Contains(out.String(), unwanted) {
+			t.Errorf("account table kept status column %q: %q", unwanted, out.String())
+		}
 	}
 }
 
 func TestRenderAccountTableWide(t *testing.T) {
 	env := newTestEnv(t, false)
 	app, out, _ := env.app("")
-	app.Width = 120
-	future := testNow.Add(2 * time.Hour)
-	past := testNow.Add(-24 * time.Hour)
+	app.Width = 140
+	snapshot := usageSnapshot()
 	rows := []accountRow{
-		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "very.long.account.name@example.com", Alias: "long-alias", AuthMethod: "consumer", ExpiresAt: &future, LastUsedAt: &past},
+		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "very.long.account.name@example.com", Alias: "long-alias", Plan: "Pro", Usage: &snapshot},
 	}
 	app.renderAccountRows(rows, testNow)
-	for _, want := range []string{"EXPIRES", "METHOD", "LAST", "very.long.account.name@example.com"} {
+	for _, want := range []string{"PLAN", "5H", "WEEKLY", "GROUP", "5H RESET", "WEEKLY RESET", "Gemini Models", "very.long.account.name@example.com"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("wide table missing %q: %q", want, out.String())
+		}
+	}
+	for _, unwanted := range []string{"EXPIRES", "METHOD", "LAST"} {
+		if strings.Contains(out.String(), unwanted) {
+			t.Errorf("wide table kept status column %q: %q", unwanted, out.String())
 		}
 	}
 }
@@ -2436,6 +2442,9 @@ func TestUsageCommandAll(t *testing.T) {
 	}
 	if provider.callCount() != 2 {
 		t.Errorf("provider calls = %d", provider.callCount())
+	}
+	if !strings.Contains(out.String(), "\n\n") {
+		t.Errorf("usage --all has no blank line between accounts: %q", out.String())
 	}
 
 	provider = &testGroupsProvider{groups: usageGroups()}
