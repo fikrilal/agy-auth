@@ -122,7 +122,7 @@ After switching, restart `agy`. An already-running `agy` process keeps the old c
 | `agy-auth export [--dir <directory>] [<query>...]` | Export credential JSON with a summary |
 | `agy-auth path` | Print storage locations |
 | `agy-auth clean [--dry-run]` | Prune managed backups and orphan snapshots |
-| `agy-auth version` | Print the version |
+| `agy-auth version [--check]` | Print the version; `--check` queries the latest npm release |
 
 Queries resolve by row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring.
 
@@ -188,6 +188,26 @@ Rows are ordered active first, then email. The same `01`-style numbers are used 
 `import` reports each file as imported, updated, or skipped; skipped rows go to stderr, and every run ends with a summary. `--purge` rebuilds `registry.json` from `accounts/*.json`, carries aliases and active/previous where possible, and uses the live credential to choose the active account when it matches. `export` prints per-file paths plus a summary.
 
 See [docs/internals.md](docs/internals.md) for the exact storage and OAuth details.
+
+## Updates
+
+Existing installs learn about releases from a cached npm-registry check. After `list`, `switch`, `status`, or `usage` for a human terminal, `agy-auth` checks the published version at most once every 24 hours and prints a notice to stderr when a newer release exists. Live views and `--json` do not check. Failures are silent.
+
+```shell
+agy-auth version --check
+```
+
+forces an immediate check. The check only fetches `@fikrilal/agy-auth` metadata from `registry.npmjs.org`; it sends no account or token data. The result is cached in `update-check.json` (`0600`) in the config directory. Disable automatic checks with `AGY_AUTH_NO_UPDATE_CHECK=1`.
+
+Update with the installer you used:
+
+```shell
+npm install -g @fikrilal/agy-auth@latest
+# or
+go install github.com/fikrilal/agy-auth/cmd/agy-auth@latest
+# or, from a source checkout
+git pull && make install
+```
 
 ## OAuth login
 
@@ -283,7 +303,7 @@ Usage and operation errors use the same envelope:
 
 `usage --json` returns `account`, `email`, `updated_at`, and a `groups` array. Each group has a `name`, `description`, and `buckets`; each bucket has `id`, `name`, `window` (`5h`/`weekly`), `remaining_fraction`, `remaining_percent`, and `reset_time`. `usage --all --json` returns an `accounts` array with the same group data plus `usage_error`. `config live --json` returns `live_interval_seconds`.
 
-Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `backup_error`, `registry_error`, `state_uncertain`, `oauth_error`, `quota_error`, `import_failed`, `invalid_credential`, `export_failed`, `clean_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, and `output_error`.
+Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `backup_error`, `registry_error`, `state_uncertain`, `oauth_error`, `quota_error`, `import_failed`, `invalid_credential`, `export_failed`, `clean_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, `update_check_failed`, and `output_error`.
 
 `ambiguous_query` errors include a `candidates` array with account IDs, emails, and aliases. Hints are included when there is a concrete recovery step.
 
@@ -309,6 +329,7 @@ Usage errors print `error:`, the command's `Usage:` block, and a `hint:` on stde
 | `AGY_AUTH_CLIENT_ID` | Override the OAuth client ID |
 | `AGY_AUTH_CLIENT_SECRET` | Override the OAuth client secret |
 | `AGY_AUTH_PROJECT_ID` | Override the Code Assist project ID used for quota lookups |
+| `AGY_AUTH_NO_UPDATE_CHECK=1` | Disable automatic update checks |
 
 ## Limitations
 

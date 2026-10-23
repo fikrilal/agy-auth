@@ -229,10 +229,12 @@ var commandSpecs = []CommandSpec{
 	{
 		Name:        "version",
 		Group:       "Other",
-		Synopsis:    "version",
+		Synopsis:    "version [--check]",
 		Summary:     "Print the version",
-		Usage:       []string{"agy-auth version"},
-		Description: "Print the agy-auth version.",
+		Usage:       []string{"agy-auth version", "agy-auth version --check"},
+		Description: "Print the agy-auth version. --check queries the npm registry for a newer release.",
+		Options:     []OptionSpec{{Flag: "--check", Description: "Check the latest published version"}},
+		Examples:    []string{"agy-auth version", "agy-auth version --check"},
 	},
 	{
 		Name:        "help",

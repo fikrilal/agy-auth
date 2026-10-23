@@ -62,6 +62,21 @@ npm publish --access public
 Scoped packages must be published with `--access public` on the first release;
 `package.json` also sets `publishConfig.access`.
 
+## Update notification
+
+`agy-auth` checks the npm `latest` dist-tag at most once every 24 hours after
+`list`, `switch`, `status`, or `usage`, and prints a notice to stderr when the
+published version is newer. `agy-auth version --check` forces the same check.
+No account or token data is sent. Users can disable automatic checks with
+`AGY_AUTH_NO_UPDATE_CHECK=1`.
+
+After a release, verify the published version and the check path:
+
+```shell
+npm view @fikrilal/agy-auth version
+agy-auth version --check
+```
+
 ## Verify
 
 ```shell

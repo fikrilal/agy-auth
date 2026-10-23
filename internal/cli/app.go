@@ -27,6 +27,7 @@ type App struct {
 	Usage       usage.Provider
 	UsageFull   usage.FullProvider
 	UsageGroups usage.GroupsProvider
+	UpdateURL   string
 	Now         func() time.Time
 	TTY         bool
 	OutTTY      bool
@@ -58,6 +59,7 @@ func New() (*App, error) {
 		Usage:       usage.NewCache(usageClient),
 		UsageFull:   usage.NewFullCache(usageClient),
 		UsageGroups: usageClient,
+		UpdateURL:   defaultUpdateURL,
 		Now:         time.Now,
 		TTY:         term.IsTerminal(int(os.Stdin.Fd())),
 		OutTTY:      term.IsTerminal(int(os.Stdout.Fd())),
@@ -81,6 +83,9 @@ func (a *App) Run(args []string) int {
 	command := args[0]
 	a.Command = canonicalCommand(command)
 	rest := args[1:]
+	if shouldCheckForUpdates(command, rest) {
+		defer a.maybeNotifyUpdate()
+	}
 	switch command {
 	case "help", "-h", "--help":
 		if len(rest) > 0 {
@@ -245,17 +250,43 @@ func (a *App) promptWriter() io.Writer {
 }
 
 func (a *App) cmdVersion(args []string) int {
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-		a.printCommandHelp("version")
-		return 0
+	check := false
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help":
+			a.printCommandHelp("version")
+			return 0
+		case "--check":
+			check = true
+		default:
+			return a.usageFor("version", "version takes no arguments")
+		}
 	}
-	if len(args) > 0 {
-		return a.usageFor("version", "version takes no arguments")
+	if check {
+		status, err := a.checkForUpdate(true)
+		if err != nil {
+			return a.failCode("update_check_failed", "Check network access to registry.npmjs.org and try again.", "could not check for updates")
+		}
+		if a.JSON {
+			_ = a.emitJSON(status)
+			return 0
+		}
+		fmt.Fprintf(a.Out, "agy-auth %s\n", status.Current)
+		if status.Latest != "" {
+			fmt.Fprintf(a.Out, "latest %s\n", status.Latest)
+		}
+		if status.Available {
+			fmt.Fprintf(a.Out, "update available\n  %s\n", updateInstructions)
+		} else {
+			fmt.Fprintln(a.Out, "up to date")
+		}
+		return 0
 	}
 	if a.JSON {
 		_ = a.emitJSON(map[string]string{"version": Version})
 		return 0
 	}
 	fmt.Fprintf(a.Out, "agy-auth %s\n", Version)
+	a.maybeNotifyUpdate()
 	return 0
 }
