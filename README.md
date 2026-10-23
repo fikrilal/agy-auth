@@ -4,80 +4,32 @@
 [![CI](https://github.com/fikrilal/agy-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/fikrilal/agy-auth/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/fikrilal/agy-auth)](LICENSE)
 
-`agy-auth` is an unofficial multi-account switcher for [Google Antigravity CLI](https://antigravity.google/docs/cli/overview) (`agy`), modeled on [codex-auth](https://github.com/Loongphy/codex-auth).
+`agy-auth` is an unofficial multi-account switcher for [Google Antigravity CLI](https://antigravity.google/docs/cli/overview) (`agy`). Keep personal, work, and test accounts side by side, switch the live credential, and see plan and quota limits without signing in again.
 
-Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, switches the live credential, and lets you keep personal, work, or test accounts side by side.
+## Highlights
 
-## Features
-
-- Store any number of `agy` accounts.
-- Switch by row number, alias, email, or account ID prefix.
-- Toggle back to the previous account with `switch -`.
-- Candidate picker for ambiguous queries in a terminal.
-- Width-aware tables with active-first numbering and same-email grouping.
-- Plan and shared 5-hour/weekly quota, group, and reset columns from the Antigravity Code Assist quota API, with a 60-second cache (or the live interval) and non-fatal errors; the `switch` picker uses the same table as `list`.
-- Antigravity quota groups with `agy-auth usage`, matching `agy /usage`: Gemini Models, Claude and GPT models, and any tier-specific group; `usage --all` compares every stored account.
-- Live views for list, switch, and remove with viewport paging, digit jump, enhanced key handling, resize-aware incremental repaint, and a configurable 5–3600 second refresh; `switch --live` can move away from exhausted quota groups.
-- Skip quota lookups with `list --no-usage`; set the live cadence with `config live --interval`.
-- Add the account that is currently signed in (`add`).
-- Add another account through Google OAuth with PKCE (`login`) without touching the current credential first.
-- Import and export raw credential JSON.
-- Machine-readable output with `--json`.
-- Timestamped backups before credential and registry changes, with `clean` for retention and orphan cleanup.
-- AES-256-GCM encryption for account snapshots and active-credential backups, with lazy migration of plaintext files and a versioned registry schema.
-- Uses the same credential storage as `agy`: the OS keyring with a file fallback for headless hosts.
-- No telemetry. Tokens only leave the machine for Google OAuth, the Google Code Assist quota API, and, if you use `--via-agy`, agy itself.
+- Switch accounts by row number, alias, email, or account ID.
+- See plan, 5-hour, weekly, group, and reset columns in `list` and `switch`.
+- Compare Antigravity quota groups with `agy-auth usage` and `usage --all`.
+- Use live views with automatic switching away from exhausted groups.
+- Keep encrypted account snapshots and automatic backups.
 
 ## Install
 
-### npm (recommended)
-
-The package is published as `@fikrilal/agy-auth` on npm.
+npm is the recommended install:
 
 ```shell
 npm install -g @fikrilal/agy-auth
 agy-auth version
 ```
 
-Run without a global install:
+Run it without a global install:
 
 ```shell
 npx @fikrilal/agy-auth list
 ```
 
-> The unscoped npm name `agy-auth` belongs to an unrelated project. Install the scoped package above, which provides the `agy-auth` command.
-
-For development, install from a local checkout:
-
-```shell
-git clone https://github.com/fikrilal/agy-auth.git
-cd agy-auth
-make npm-build
-npm install -g .
-```
-
-### Go
-
-```shell
-go install github.com/fikrilal/agy-auth/cmd/agy-auth@latest
-```
-
-Make sure `$(go env GOPATH)/bin` is on your `PATH`.
-
-### From source
-
-```shell
-git clone https://github.com/fikrilal/agy-auth.git
-cd agy-auth
-make install          # installs ~/.local/bin/agy-auth
-# or: make build      # builds ./bin/agy-auth
-```
-
-## Requirements
-
-- Antigravity CLI installed and signed in for `add`/`switch`.
-- Linux, macOS, or Windows. Linux needs a Secret Service provider (GNOME Keyring, KWallet, etc.) for keyring access; otherwise the file fallback is used.
-- The npm package bundles prebuilt binaries for Linux, macOS, and Windows on x64 and arm64, so Node.js 18+ is enough. Building from source needs Go 1.24+.
+> The unscoped npm name `agy-auth` is an unrelated project. Install `@fikrilal/agy-auth`; it provides the `agy-auth` command.
 
 ## Quick start
 
@@ -95,311 +47,90 @@ agy-auth login --alias work
 agy-auth list
 agy-auth switch work
 
-# Toggle back to the account that was active before the last switch.
+# Toggle back to the previous account.
 agy-auth switch -
 ```
 
-After switching, restart `agy`. An already-running `agy` process keeps the old credential in memory.
+After switching, restart `agy`; a running session keeps the old credential in memory.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `agy-auth list [--active] [--no-sync] [--no-usage] [--live]` | List stored accounts, plan, and quota |
-| `agy-auth add [--alias <alias>]` | Save the account currently signed in to agy |
+| `agy-auth list [--active] [--no-sync] [--no-usage] [--live]` | List accounts, plan, and quota |
+| `agy-auth add [--alias <alias>]` | Save the account signed in to agy |
 | `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
-| `agy-auth switch [<query>|-] [--live]` | Switch interactively, by query, or back to the previous account |
+| `agy-auth switch [<query>\|-] [--live]` | Switch interactively, by query, or to the previous account |
 | `agy-auth remove [<query>...] [--all] [--logout] [--yes] [--live]` | Remove stored accounts |
 | `agy-auth alias set <query> <alias>` | Set an alias |
 | `agy-auth alias clear <query>` | Clear an alias |
 | `agy-auth alias list` | List aliases |
 | `agy-auth current` | Print the live agy account |
-| `agy-auth status` | Show storage paths, token expiry, and keyring/file health |
-| `agy-auth usage [<query>] [--all]` | Show or compare per-model quota details |
+| `agy-auth status` | Show storage paths and credential health |
+| `agy-auth usage [<query>] [--all]` | Show or compare quota groups |
 | `agy-auth config live [--interval <seconds>]` | Show or set the live refresh interval |
-| `agy-auth import <file-or-dir> [--alias <alias>] [--activate]` | Import credential JSON with per-file reporting |
-| `agy-auth import --purge` | Rebuild `registry.json` from stored account snapshots |
-| `agy-auth export [--dir <directory>] [<query>...]` | Export credential JSON with a summary |
+| `agy-auth import <file-or-dir> [--alias <alias>] [--activate]` | Import credential JSON |
+| `agy-auth import --purge` | Rebuild the registry from stored snapshots |
+| `agy-auth export [--dir <directory>] [<query>...]` | Export credentials |
 | `agy-auth path` | Print storage locations |
-| `agy-auth clean [--dry-run]` | Prune managed backups and orphan snapshots |
-| `agy-auth version [--check]` | Print the version; `--check` queries the latest npm release |
+| `agy-auth clean [--dry-run]` | Prune old backups and orphan snapshots |
+| `agy-auth version [--check]` | Print the version; `--check` queries the latest release |
 
-Queries resolve by row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring.
+Queries match row number, account ID, alias, email, or account ID prefix.
 
-### Global options
+Global options: `--json` for machine-readable output and `--no-color` to disable colors. See the [user guide](docs/user-guide.md#json-output) for JSON details.
 
-- `--json` — machine-readable output.
-- `--no-color` — disable ANSI colors.
+## Quota and live views
 
-## How it works
+`agy-auth list` shows the current plan and the 5-hour/weekly quota groups, including reset times. `agy-auth usage --all` shows every group for every stored account:
 
-Antigravity CLI stores a JSON document in the OS keyring under service `gemini`, account `antigravity`. On hosts without a usable keyring, it uses:
-
-```
-~/.gemini/antigravity-cli/antigravity-oauth-token
+```shell
+agy-auth usage --all
 ```
 
-The document looks like this:
+For an interactive view:
 
-```json
-{
-  "token": {
-    "access_token": "...",
-    "token_type": "Bearer",
-    "refresh_token": "...",
-    "expiry": "2026-10-20T23:02:46.46381726+07:00"
-  },
-  "auth_method": "consumer",
-  "id_token": "eyJ..."
-}
+```shell
+agy-auth list --live
+agy-auth switch --live
+agy-auth remove --live
 ```
 
-`agy-auth` keeps snapshots and metadata in:
-
-```
-~/.config/agy-auth/
-  encryption.key
-  registry.json
-  accounts/<account-id>.json
-  backups/active-<timestamp>.json
-  backups/registry-<timestamp>.json
-```
-
-`accounts/*.json` and `backups/active-*.json` are encrypted with AES-256-GCM (`agy-auth-encrypted:v1:`). `encryption.key` is the separate 32-byte key file (`0600`, directory `0700`); `path` prints its location. Existing plaintext active-credential backups are encrypted on the next registry load; plaintext snapshots are encrypted when first read. Registry backups contain metadata only and remain plaintext. Losing `encryption.key` makes encrypted snapshots unrecoverable, so back it up separately from the account files.
-
-`switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. `agy` refreshes expired access tokens itself with the stored refresh token.
-
-Before replacing or deleting the live credential, `agy-auth` snapshots the current value under `backups/` (`0600`, keep 5). `registry.json` is backed up when its contents change. `clean` prunes managed backups beyond retention and snapshots not referenced by the registry; if `registry.json` is missing, snapshots are preserved for rebuild.
-
-`registry.json` schema version 2 adds `config.snapshot_encryption: "aes-gcm-v1"`. Version 1 registries migrate automatically on load; unknown newer versions are rejected. `export` decrypts selected snapshots and writes plaintext credential JSON to the destination, so treat exported files as secrets.
-
-Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
-
-Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns. Account tables show `PLAN`, `5H`, `WEEKLY`, `GROUP`, `5H RESET`, and `WEEKLY RESET` when quota data is available; token expiry, auth method, and last-used date are JSON-only. The interactive `switch` picker uses this same quota-enriched table, including its non-TTY numbered fallback. The `GROUP` column identifies which quota group owns the lower of the displayed `5H`/`WEEKLY` values; `agy-auth usage` shows every group explicitly.
-
-`list --live`, `switch --live`, and `remove --live` open an interactive view with a 1 Hz repaint and a configurable 5–3600 second credential/registry/quota refresh (default 60). Arrow/SS3/CSI-u keys, `j`/`k`, PgUp/PgDn, Home/End, and `0-9` row jumps are supported; lone Esc is distinguished from escape sequences. The frame repaints incrementally and reflows on terminal resize. `switch --live` switches on Enter and stays open; `remove --live` uses Space to check rows and Enter to remove them. `switch --live` also auto-switches when any fresh named quota group (Gemini, Claude/GPT, or a tier-specific group) is at 0%, choosing the healthy stored account with the earliest reset. If group data is unavailable, it falls back to the shared summary and model detail. `--live` requires a terminal and cannot be combined with `--json`.
-
-`list` fetches the current plan and grouped quota summary from the Antigravity Code Assist backend. The quota source uses the project ID cached by agy, an `antigravity/cli` User-Agent, and the account's access token; expired access tokens are refreshed in memory through the same OAuth client used by `login`. Results are cached for 60 seconds (or the live interval while a live view is running). Quota failures are non-fatal: the table shows `-` (or cached values marked `*`) and JSON rows carry `usage_error`. Use `list --no-usage` to skip the lookup.
-
-`agy-auth usage` shows the same grouped quota data as `agy /usage`: `Gemini Models`, `Claude and GPT models`, and any tier-specific group such as Ultra. Each group row has its 5-hour and weekly remaining percentages and reset times. `usage --all` compares every stored account, with a blank line between account blocks; a query selects one account. `config live --interval` stores the live cadence in `registry.json`; `import --purge` preserves it.
-
-`remove` resolves and deduplicates every selector before deleting anything. If a later selector fails, no account is removed.
-
-`import` reports each file as imported, updated, or skipped; skipped rows go to stderr, and every run ends with a summary. `--purge` rebuilds `registry.json` from `accounts/*.json`, carries aliases and active/previous where possible, and uses the live credential to choose the active account when it matches. `export` prints per-file paths plus a summary.
-
-See [docs/internals.md](docs/internals.md) for the exact storage and OAuth details.
+In `switch --live`, pressing Enter switches and keeps the view open. The view can also switch automatically when a quota group is exhausted. See the [user guide](docs/user-guide.md#quota-and-live-views) for keys and details.
 
 ## Updates
 
-Existing installs learn about releases from a cached npm-registry check. After `list`, `switch`, `status`, or `usage`, `agy-auth` checks the published version at most once every 24 hours. In an interactive terminal it asks `Update now? [y/N]`; non-interactive runs print the update commands instead. Live views and `--json` do not check. Failures are silent.
-
-- npm installs update through `npm install -g @fikrilal/agy-auth@latest`.
-- Standalone Linux/macOS binaries download the matching GitHub release asset and verify its SHA-256 checksum before replacing the executable.
-- Windows standalone installs and unsupported platforms print the npm/Go commands.
-- Declining suppresses the prompt for that published version.
-- Checksums protect against corrupted downloads, not a compromised GitHub release; npm installs also use npm integrity metadata.
+`agy-auth` checks the latest npm release at most once every 24 hours. On an interactive terminal it offers to update in place; otherwise it prints the update command. Run:
 
 ```shell
 agy-auth version --check
 ```
 
-forces an immediate check without applying an update. The check only fetches `@fikrilal/agy-auth` metadata from `registry.npmjs.org`; it sends no account or token data. The result is cached in `update-check.json` (`0600`) in the config directory. Disable automatic checks with `AGY_AUTH_NO_UPDATE_CHECK=1`.
+to check immediately. Disable automatic checks with `AGY_AUTH_NO_UPDATE_CHECK=1`. npm installs update through npm; standalone binaries verify the release checksum before replacing themselves.
 
-Update manually with the installer you used:
+## Storage and safety
 
-```shell
-npm install -g @fikrilal/agy-auth@latest
-# or
-go install github.com/fikrilal/agy-auth/cmd/agy-auth@latest
-# or, from a source checkout
-git pull && make install
-```
+`agy-auth` uses the same credential storage as `agy` (OS keyring with a file fallback). Account snapshots and active-credential backups are encrypted with AES-256-GCM. `agy-auth path` prints the storage locations.
 
-## OAuth login
+> Back up `~/.config/agy-auth/encryption.key` separately. Without it, encrypted snapshots cannot be recovered. Exported credentials are plaintext; delete them after use.
 
-`agy-auth login` uses the same public OAuth client that Antigravity CLI uses. The client ID and secret are discovered from your installed `agy` binary at runtime; this repository does not embed them. If discovery fails, set `AGY_AUTH_CLIENT_ID` and `AGY_AUTH_CLIENT_SECRET`, or use `--via-agy`. The command prints an authorization URL (and opens a browser when possible), then asks for the authorization code shown at `antigravity.google/oauth-callback`.
+See [Security](SECURITY.md) and the [user guide](docs/user-guide.md#storage-and-switching) for the trust model and recovery details.
 
-The flow uses PKCE (`S256`), `access_type=offline`, and `prompt=consent` so Google returns a refresh token. The account is added and activated without deleting the current credential first.
+## Requirements
 
-If you prefer to let `agy` handle sign-in:
+- Antigravity CLI installed and signed in for `add` and `switch`.
+- Linux, macOS, or Windows. Linux uses a Secret Service provider when available and otherwise falls back to file storage.
+- Node.js 18+ for the npm package. The package bundles prebuilt binaries, so no Go toolchain is required.
 
-```shell
-agy-auth login --via-agy
-```
+## Learn more
 
-This saves the current account, runs `agy` in an isolated temporary home with file-based credential storage, and imports the resulting credential only after sign-in succeeds. Your active credential is left untouched if you cancel or sign-in fails.
-
-## JSON output
-
-`list`, `add`, `login`, `switch`, `remove`, `current`, `status`, `usage`, `config`, `import`, `export`, `path`, and `version` support `--json`. Every response is one versioned envelope on stdout; warnings go to stderr.
-
-Example (`agy-auth list --json`):
-
-```json
-{
-  "schema_version": 1,
-  "command": "list",
-  "data": {
-    "accounts": [
-      {
-        "number": 1,
-        "id": "acct_cb5897f277",
-        "active": true,
-        "stored": true,
-        "email": "user@example.com",
-        "alias": "personal",
-        "auth_method": "consumer",
-        "expires_at": "2026-10-20T23:02:46.46381726+07:00",
-        "expired": false,
-        "added_at": "2026-10-20T15:58:44Z",
-        "plan": "Pro",
-        "usage": {
-          "five_hour": {
-            "remaining_percent": 75,
-            "resets_at": "2026-10-22T18:25:48Z"
-          },
-          "weekly": {
-            "remaining_percent": 50,
-            "resets_at": "2026-10-29T13:25:48Z"
-          },
-          "updated_at": "2026-10-22T13:25:47Z"
-        }
-      }
-    ],
-    "current": {
-      "number": 1,
-      "id": "acct_cb5897f277",
-      "active": true,
-      "stored": true,
-      "email": "user@example.com",
-      "plan": "Pro",
-      "usage": {
-        "five_hour": {
-          "remaining_percent": 75,
-          "resets_at": "2026-10-22T18:25:48Z"
-        },
-        "weekly": {
-          "remaining_percent": 50,
-          "resets_at": "2026-10-29T13:25:48Z"
-        },
-        "updated_at": "2026-10-22T13:25:47Z"
-      }
-    }
-  }
-}
-```
-
-Usage and operation errors use the same envelope:
-
-```json
-{
-  "schema_version": 1,
-  "command": "list",
-  "error": {
-    "code": "usage",
-    "message": "list takes no arguments",
-    "hint": "Run `agy-auth list --help` for help and examples."
-  }
-}
-```
-
-`command` is always the canonical command name, even when an alias is used.
-
-`plan` and `usage` are omitted when quota data is unavailable. `usage_error` carries a short stable code (`missing_auth`, `auth`, `forbidden`, `unsupported`, `timeout`, `network`, `invalid_response`, `refresh_failed`, or `http_<status>`); `usage.stale: true` marks cached values retained after a failed refresh. Each `five_hour`/`weekly` window may include a `group` field naming the quota group that supplied the limiting value.
-
-`usage --json` returns `account`, `email`, `updated_at`, and a `groups` array. Each group has a `name`, `description`, and `buckets`; each bucket has `id`, `name`, `window` (`5h`/`weekly`), `remaining_fraction`, `remaining_percent`, and `reset_time`. `usage --all --json` returns an `accounts` array with the same group data plus `usage_error`. `config live --json` returns `live_interval_seconds`.
-
-Stable error codes include `usage`, `account_not_found`, `ambiguous_query`, `previous_not_found`, `credential_not_found`, `credential_error`, `credential_write_failed`, `backup_error`, `registry_error`, `state_uncertain`, `oauth_error`, `quota_error`, `import_failed`, `invalid_credential`, `export_failed`, `clean_failed`, `confirmation_required`, `confirmation_declined`, `selection_failed`, `input_error`, `agy_not_found`, `state_conflict`, `update_check_failed`, and `output_error`.
-
-`ambiguous_query` errors include a `candidates` array with account IDs, emails, and aliases. Hints are included when there is a concrete recovery step.
-
-`import` and `export` JSON responses include a `files` array with per-file outcomes and a `summary` object. `import` also keeps the `imported` account array, and `export` keeps the `exported` array.
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `1` | Operation failed (no stored account, corrupt credential, OAuth failure, and similar) |
-| `2` | Usage error (unknown command or flag, wrong argument count, missing selector) |
-
-Usage errors print `error:`, the command's `Usage:` block, and a `hint:` on stderr.
-
-## Environment variables
-
-| Variable | Purpose |
-|----------|---------|
-| `AGY_AUTH_HOME` | Override the registry directory |
-| `AGY_AUTH_STORAGE=file` | Disable keyring access and use only the file backend |
-| `AGY_AUTH_AGY_TOKEN_FILE` | Override the agy fallback token path |
-| `AGY_AUTH_CLIENT_ID` | Override the OAuth client ID |
-| `AGY_AUTH_CLIENT_SECRET` | Override the OAuth client secret |
-| `AGY_AUTH_PROJECT_ID` | Override the Code Assist project ID used for quota lookups |
-| `AGY_AUTH_NO_UPDATE_CHECK=1` | Disable automatic update checks |
-
-## Limitations
-
-- **Restart agy after switching.** Existing sessions do not pick up the new credential.
-- `agy-auth` is unofficial and can break when Antigravity changes its credential format or OAuth client.
-- Plan, shared quota, and per-model quota display depend on undocumented Code Assist endpoints. If an endpoint or project context changes, the command reports a stable quota error or unavailable row instead of failing the account list; `--no-usage` skips the list lookup entirely.
-- Per-model IDs are provider-specific and may change when Antigravity updates its catalog.
-- The direct OAuth flow targets personal Google accounts (`auth_method: consumer`). For enterprise or custom sign-in flows, sign in with `agy` first and use `agy-auth add`.
-- Account snapshots and active-credential backups are encrypted with a local key file, not with your OS login keyring. Protect `encryption.key` and back it up separately; losing it makes the snapshots unrecoverable.
-- Exported credential files are intentionally plaintext. Delete them after use.
-- The keyring is protected by your OS login keyring.
-- On Linux, a locked or unresponsive keyring falls back to the file mirror after a short timeout.
-
-## Packaging and publishing
-
-The npm package is `@fikrilal/agy-auth`. `npm pack` cross-compiles all six
-platform binaries into `npm/vendor/` and the Node shim in `npm/bin/agy-auth.js`
-dispatches to the right one. The GitHub release workflow publishes the package
-using the `NPM_TOKEN` secret.
-
-See [docs/release.md](docs/release.md) for the release process.
-
-## Development
-
-The repository harness is the canonical gate:
-
-```shell
-make verify       # fast: static checks, contracts, build, short tests
-make verify-full  # race tests + current-target npm packaging
-make verify-ci    # CI parity: fresh race tests + all-target npm packaging
-make hooks        # opt-in pre-commit and commit-msg hooks
-```
-
-`make verify` is enough for most changes. See [docs/harness.md](docs/harness.md) for the rules, contracts, profiles, and commit policy.
-
-Build and packaging commands remain available:
-
-```shell
-make build
-make npm-build
-make npm-pack
-```
-
-The keyring integration test is opt-in because it writes to the real OS keyring:
-
-```shell
-AGY_AUTH_KEYRING_TEST=1 go test ./internal/agy -run TestKeyringRoundTrip -v
-```
-
-It uses a throwaway service name (`agy-auth-selftest`) and never touches the `gemini`/`antigravity` entry.
-
-## Documentation
-
+- [User guide](docs/user-guide.md) — storage, quota, OAuth, JSON, environment variables
+- [Security](SECURITY.md) — credential handling and reporting
+- [Internals](docs/internals.md) — implementation details
+- [Contributing](CONTRIBUTING.md) and [Development](docs/development.md) — building and testing
+- [Release process](docs/release.md) and [Changelog](CHANGELOG.md)
 - [Documentation index](docs/README.md)
-- [Harness](docs/harness.md) — verification profiles, custom lints, contracts, hooks
-- [Engineering guides](docs/engineering/README.md) — agent workflow, architecture, testing, standards
-- [Execution plans](docs/exec-plans/README.md) — non-trivial work plans
-- [ADRs](docs/adr/README.md) — architecture decisions
-- [Internals](docs/internals.md) — credential storage, registry, switching, OAuth
-- [Release process](docs/release.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security](SECURITY.md)
-- [Changelog](CHANGELOG.md)
 
 ## Disclaimer
 
-This project is not affiliated with Google. Use it at your own risk. By using the default OAuth login you send OAuth requests to Google using the same public client as Antigravity CLI. Review Google's terms and your account policies before using it with a work or enterprise account.
+This project is not affiliated with Google. Use it at your own risk. The default OAuth login uses the same public client as Antigravity CLI; review Google's terms and your account policies before using it with a work or enterprise account.

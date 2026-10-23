@@ -4,7 +4,9 @@ Start here, then follow the topic-specific source.
 
 ## Users and contributors
 
-- [README](../README.md) — what `agy-auth` does, install, commands, quick start
+- [README](../README.md) — install, quick start, commands, updates
+- [User guide](user-guide.md) — storage, quota, OAuth, JSON, environment variables
+- [Development](development.md) — build, install from source, verification, packaging
 - [Contributing](../CONTRIBUTING.md) — setup, pull requests, safe credential testing
 - [Security](../SECURITY.md) — reporting, stored credentials, trust model
 - [Changelog](../CHANGELOG.md)
