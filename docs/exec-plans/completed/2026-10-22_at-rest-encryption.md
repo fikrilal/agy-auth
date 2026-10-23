@@ -5,7 +5,7 @@
 | Status | completed |
 | Owner | fikrilal |
 | Date | 2026-10-22 |
-| Related | [Internals](../../internals.md); [Roadmap](../../../_WIP/codex-auth-ux-analysis.md) |
+| Related | [Internals](../../internals.md); optional CPA import remains deferred |
 
 ## Objective
 
