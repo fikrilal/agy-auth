@@ -93,7 +93,7 @@ func (a *App) maybeNotifyUpdate() {
 	if cache.Skipped == status.Latest {
 		return
 	}
-	if !a.TTY || a.Command == "version" || !a.canAutoUpdate() {
+	if !a.TTY || !a.OutTTY || a.Command == "version" || !a.canAutoUpdate() {
 		fmt.Fprintf(a.Err, "\nupdate available: %s -> %s\n  %s\n", status.Current, status.Latest, updateInstructions)
 		return
 	}

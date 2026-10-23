@@ -101,6 +101,8 @@ func TestMaybeNotifyUpdate(t *testing.T) {
 		Err:       &errOut,
 		UpdateURL: server.URL,
 		Now:       func() time.Time { return testNow },
+		TTY:       true,
+		OutTTY:    false,
 	}
 	app.maybeNotifyUpdate()
 	if !strings.Contains(errOut.String(), "update available") || !strings.Contains(errOut.String(), "0.2.0") {
@@ -126,6 +128,7 @@ func TestUpdatePromptDeclineDoesNotNag(t *testing.T) {
 		UpdateURL: server.URL,
 		Now:       func() time.Time { return testNow },
 		TTY:       true,
+		OutTTY:    true,
 		Command:   "list",
 	}
 	app.maybeNotifyUpdate()
