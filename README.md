@@ -34,13 +34,13 @@ npx @fikrilal/agy-auth list
 ## Quick start
 
 ```shell
-# Sign in with agy as usual.
-agy
+# Add an account directly through Google OAuth.
+agy-auth login --alias personal
 
-# Save the account that is currently signed in.
-agy-auth add --alias personal
+# Already signed in with agy? Save that account instead:
+# agy-auth add --alias personal
 
-# Add a second account through Google OAuth.
+# Add a second account.
 agy-auth login --alias work
 
 # Inspect and switch.
@@ -118,7 +118,7 @@ See [Security](SECURITY.md) and the [user guide](docs/user-guide.md#storage-and-
 
 ## Requirements
 
-- Antigravity CLI installed and signed in for `add` and `switch`.
+- Antigravity CLI installed. `agy-auth login` adds accounts directly; it uses the installed CLI to discover the OAuth client. Signing in to `agy` first is only needed for `agy-auth add` and for running `agy` after a switch.
 - Linux, macOS, or Windows. Linux uses a Secret Service provider when available and otherwise falls back to file storage.
 - Node.js 18+ for the npm package. The package bundles prebuilt binaries, so no Go toolchain is required.
 
