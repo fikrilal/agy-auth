@@ -40,8 +40,8 @@ so `agy-auth version` matches the npm package version.
 3. Commit and tag:
 
    ```shell
-   git add package.json CHANGELOG.md
-   git commit -m "Release v0.2.0"
+   git add package.json internal/cli/app.go CHANGELOG.md
+   git commit -m "chore(release): v0.2.0"
    git tag v0.2.0
    git push origin main --tags
    ```

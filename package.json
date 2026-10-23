@@ -1,6 +1,6 @@
 {
   "name": "@fikrilal/agy-auth",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-account switcher for Google Antigravity CLI (agy)",
   "license": "MIT",
   "author": "ahmad fikril <fikrildev@gmail.com>",

@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-23
+
 ### Added
 
 - Cached npm update checks after human-readable account commands, with an interactive `Update now?` prompt, npm/standalone updater paths, `agy-auth version --check`, and `AGY_AUTH_NO_UPDATE_CHECK=1` opt-out.
@@ -65,4 +67,5 @@ All notable changes to this project are documented here.
 - npm distribution with prebuilt Linux, macOS, and Windows binaries for x64 and arm64.
 - GitHub Actions CI and release workflows.
 
+[0.2.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.2.0
 [0.1.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.1.0

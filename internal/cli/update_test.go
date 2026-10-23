@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,14 @@ import (
 
 	"github.com/fikrilal/agy-auth/internal/registry"
 )
+
+func newerTestVersion() string {
+	parts, ok := parseVersion(Version)
+	if !ok {
+		return "99.0.0"
+	}
+	return fmt.Sprintf("%d.0.0", parts[0]+1)
+}
 
 func TestVersionNewer(t *testing.T) {
 	cases := []struct {
@@ -44,7 +53,7 @@ func TestCheckForUpdateCaches(t *testing.T) {
 			t.Errorf("Accept = %q", r.Header.Get("Accept"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"version":"0.2.0"}`))
+		_, _ = w.Write([]byte(`{"version":"` + newerTestVersion() + `"}`))
 	}))
 	defer server.Close()
 
@@ -59,7 +68,7 @@ func TestCheckForUpdateCaches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Available || status.Latest != "0.2.0" || status.Current != Version {
+	if !status.Available || status.Latest != newerTestVersion() || status.Current != Version {
 		t.Errorf("status = %+v", status)
 	}
 	if requests.Load() != 1 {
@@ -76,7 +85,7 @@ func TestCheckForUpdateCaches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"0.2.0"`) {
+	if !strings.Contains(string(raw), `"`+newerTestVersion()+`"`) {
 		t.Errorf("cache = %q", raw)
 	}
 	info, err := os.Stat(filepath.Join(dir, updateCacheFilename))
@@ -90,7 +99,7 @@ func TestCheckForUpdateCaches(t *testing.T) {
 
 func TestMaybeNotifyUpdate(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"version":"0.2.0"}`))
+		_, _ = w.Write([]byte(`{"version":"` + newerTestVersion() + `"}`))
 	}))
 	defer server.Close()
 
@@ -105,7 +114,7 @@ func TestMaybeNotifyUpdate(t *testing.T) {
 		OutTTY:    false,
 	}
 	app.maybeNotifyUpdate()
-	if !strings.Contains(errOut.String(), "update available") || !strings.Contains(errOut.String(), "0.2.0") {
+	if !strings.Contains(errOut.String(), "update available") || !strings.Contains(errOut.String(), newerTestVersion()) {
 		t.Errorf("stderr = %q", errOut.String())
 	}
 	if out.Len() != 0 {
@@ -115,7 +124,7 @@ func TestMaybeNotifyUpdate(t *testing.T) {
 
 func TestUpdatePromptDeclineDoesNotNag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"version":"0.2.0"}`))
+		_, _ = w.Write([]byte(`{"version":"` + newerTestVersion() + `"}`))
 	}))
 	defer server.Close()
 
@@ -223,7 +232,7 @@ func TestUpdateCheckOptOut(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		_, _ = w.Write([]byte(`{"version":"0.2.0"}`))
+		_, _ = w.Write([]byte(`{"version":"` + newerTestVersion() + `"}`))
 	}))
 	defer server.Close()
 
@@ -247,7 +256,7 @@ func TestUpdateCheckOptOut(t *testing.T) {
 
 func TestVersionCheck(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"version":"0.2.0"}`))
+		_, _ = w.Write([]byte(`{"version":"` + newerTestVersion() + `"}`))
 	}))
 	defer server.Close()
 
@@ -257,7 +266,7 @@ func TestVersionCheck(t *testing.T) {
 	if code := app.Run([]string{"version", "--check"}); code != 0 {
 		t.Fatalf("version check exit = %d, stderr = %s", code, errOut.String())
 	}
-	for _, want := range []string{"agy-auth " + Version, "latest 0.2.0", "update available", "npm install -g"} {
+	for _, want := range []string{"agy-auth " + Version, "latest " + newerTestVersion(), "update available", "npm install -g"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q: %q", want, out.String())
 		}
