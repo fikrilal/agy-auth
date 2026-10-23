@@ -6,7 +6,7 @@ All notable changes to this project are documented here.
 
 ### Added
 
-- Cached npm update checks after human-readable account commands, with `agy-auth version --check` and `AGY_AUTH_NO_UPDATE_CHECK=1` opt-out.
+- Cached npm update checks after human-readable account commands, with an interactive `Update now?` prompt, npm/standalone updater paths, `agy-auth version --check`, and `AGY_AUTH_NO_UPDATE_CHECK=1` opt-out.
 - Repository harness with custom Go AST lints, secret scanning, credential/registry contract fixtures, doctor, git hooks, and `fast`/`full`/`ci` verification profiles.
 - Documentation index, engineering guides, execution-plan scaffold, and ADR process.
 - Timestamped backups for the live credential and registry, keeping the newest 5 of each with `0600`/`0700` permissions.

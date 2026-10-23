@@ -65,15 +65,20 @@ Scoped packages must be published with `--access public` on the first release;
 ## Update notification
 
 `agy-auth` checks the npm `latest` dist-tag at most once every 24 hours after
-`list`, `switch`, `status`, or `usage`, and prints a notice to stderr when the
-published version is newer. `agy-auth version --check` forces the same check.
-No account or token data is sent. Users can disable automatic checks with
-`AGY_AUTH_NO_UPDATE_CHECK=1`.
+`list`, `switch`, `status`, or `usage`. On an interactive terminal it prompts
+`Update now? [y/N]`; yes updates npm installs through npm or a standalone
+Linux/macOS binary from the matching GitHub release after SHA-256 checksum
+verification. Non-interactive runs print the manual commands. Declining
+suppresses the prompt for that version. `agy-auth version --check` forces a
+check without applying it. No account or token data is sent. Users can disable
+automatic checks with `AGY_AUTH_NO_UPDATE_CHECK=1`.
 
-After a release, verify the published version and the check path:
+After a release, verify the published version, release assets, and check path:
 
 ```shell
 npm view @fikrilal/agy-auth version
+gh release view "v$(node -p 'require("./package.json").version')" \
+  --json assets --jq '.assets[].name'
 agy-auth version --check
 ```
 

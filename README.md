@@ -191,15 +191,21 @@ See [docs/internals.md](docs/internals.md) for the exact storage and OAuth detai
 
 ## Updates
 
-Existing installs learn about releases from a cached npm-registry check. After `list`, `switch`, `status`, or `usage` for a human terminal, `agy-auth` checks the published version at most once every 24 hours and prints a notice to stderr when a newer release exists. Live views and `--json` do not check. Failures are silent.
+Existing installs learn about releases from a cached npm-registry check. After `list`, `switch`, `status`, or `usage`, `agy-auth` checks the published version at most once every 24 hours. In an interactive terminal it asks `Update now? [y/N]`; non-interactive runs print the update commands instead. Live views and `--json` do not check. Failures are silent.
+
+- npm installs update through `npm install -g @fikrilal/agy-auth@latest`.
+- Standalone Linux/macOS binaries download the matching GitHub release asset and verify its SHA-256 checksum before replacing the executable.
+- Windows standalone installs and unsupported platforms print the npm/Go commands.
+- Declining suppresses the prompt for that published version.
+- Checksums protect against corrupted downloads, not a compromised GitHub release; npm installs also use npm integrity metadata.
 
 ```shell
 agy-auth version --check
 ```
 
-forces an immediate check. The check only fetches `@fikrilal/agy-auth` metadata from `registry.npmjs.org`; it sends no account or token data. The result is cached in `update-check.json` (`0600`) in the config directory. Disable automatic checks with `AGY_AUTH_NO_UPDATE_CHECK=1`.
+forces an immediate check without applying an update. The check only fetches `@fikrilal/agy-auth` metadata from `registry.npmjs.org`; it sends no account or token data. The result is cached in `update-check.json` (`0600`) in the config directory. Disable automatic checks with `AGY_AUTH_NO_UPDATE_CHECK=1`.
 
-Update with the installer you used:
+Update manually with the installer you used:
 
 ```shell
 npm install -g @fikrilal/agy-auth@latest

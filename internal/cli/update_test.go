@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -106,6 +108,137 @@ func TestMaybeNotifyUpdate(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("stdout = %q", out.String())
+	}
+}
+
+func TestUpdatePromptDeclineDoesNotNag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"0.2.0"}`))
+	}))
+	defer server.Close()
+
+	var out, errOut bytes.Buffer
+	app := &App{
+		Store:     registry.NewStore(t.TempDir()),
+		In:        strings.NewReader("n\n"),
+		Out:       &out,
+		Err:       &errOut,
+		UpdateURL: server.URL,
+		Now:       func() time.Time { return testNow },
+		TTY:       true,
+		Command:   "list",
+	}
+	app.maybeNotifyUpdate()
+	if !strings.Contains(out.String(), "Update now? [y/N]") || !strings.Contains(out.String(), "Update skipped") {
+		t.Errorf("stdout = %q", out.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	app.maybeNotifyUpdate()
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Errorf("second prompt: stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
+func TestInstallReleaseBinary(t *testing.T) {
+	asset, ok := releaseAssetName()
+	if !ok {
+		t.Skip("unsupported test platform")
+	}
+	binary := []byte("new binary")
+	sum := sha256.Sum256(binary)
+	checksums := hex.EncodeToString(sum[:]) + "  " + asset + "\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/checksums.txt"):
+			_, _ = w.Write([]byte(checksums))
+		case strings.HasSuffix(r.URL.Path, "/"+asset):
+			_, _ = w.Write(binary)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	target := filepath.Join(t.TempDir(), "agy-auth")
+	if err := os.WriteFile(target, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installReleaseBinary(server.URL, "0.2.0", target); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(binary) {
+		t.Errorf("target = %q", got)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("target mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestInstallReleaseBinaryRejectsBadChecksum(t *testing.T) {
+	asset, ok := releaseAssetName()
+	if !ok {
+		t.Skip("unsupported test platform")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/checksums.txt"):
+			_, _ = w.Write([]byte(strings.Repeat("0", 64) + "  " + asset + "\n"))
+		case strings.HasSuffix(r.URL.Path, "/"+asset):
+			_, _ = w.Write([]byte("tampered"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	target := filepath.Join(t.TempDir(), "agy-auth")
+	if err := os.WriteFile(target, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installReleaseBinary(server.URL, "0.2.0", target); err == nil {
+		t.Fatal("bad checksum was accepted")
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "old binary" {
+		t.Errorf("target changed: %q", got)
+	}
+}
+
+func TestUpdateCheckOptOut(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"version":"0.2.0"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv(noUpdateCheckEnv, "1")
+	app := &App{
+		Store:     registry.NewStore(t.TempDir()),
+		Out:       &bytes.Buffer{},
+		Err:       &bytes.Buffer{},
+		UpdateURL: server.URL,
+		Now:       func() time.Time { return testNow },
+		TTY:       true,
+	}
+	app.maybeNotifyUpdate()
+	if requests.Load() != 0 {
+		t.Errorf("requests = %d", requests.Load())
+	}
+	if app.Out.(*bytes.Buffer).Len() != 0 || app.Err.(*bytes.Buffer).Len() != 0 {
+		t.Errorf("opt-out produced output")
 	}
 }
 

@@ -16,7 +16,7 @@ The test strategy is simple: behavior is tested at the lowest layer that proves 
 | Contracts | `harness/fixtures` + `harness contracts` | independent credential/registry shapes |
 | Keyring | `TestKeyringRoundTrip` (opt-in) | real Secret Service round-trip with a throwaway service |
 | TUI/PTY | `internal/cli/{keys,pty}_test.go` | key decoding, type-ahead, incremental paint, live PTY open/navigate/quit |
-| Updates | `internal/cli/update_test.go` | semver comparison, registry fetch, 24h cache, notice, `version --check` |
+| Updates | `internal/cli/update_test.go` | semver comparison, registry fetch, 24h cache, prompt/skip, checksum verification, `version --check` |
 
 ## Isolation
 

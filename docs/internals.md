@@ -145,7 +145,9 @@ Input goes through a shared key decoder (`internal/cli/keys.go`): plain runes, c
 
 `internal/cli/update.go` compares `Version` with the latest `@fikrilal/agy-auth` npm release. `list`, `switch`, `status`, and `usage` schedule a check after human-readable output; live views (`--live`) and `--json` skip it. The check is at most once per 24 hours, uses a 2-second timeout, and silently ignores failures. `agy-auth version --check` forces a check and reports the result; `--check --json` returns `current`, `latest`, `update_available`, and `checked_at`.
 
-The result is cached in `update-check.json` (`0600`) beside `registry.json`; a failed check records the attempt with an empty latest version so it does not retry on every command. `AGY_AUTH_NO_UPDATE_CHECK=1` disables automatic checks. The request sends only a `User-Agent` and `Accept` header; no account, credential, or registry data is included. The npm registry is the release feed even for Go/source installs, so the notice always includes npm and `go install` update commands.
+On an interactive terminal, an available update prompts `Update now? [y/N]`. Yes runs the install-method-specific path: npm-managed binaries run `npm install -g @fikrilal/agy-auth@latest`; standalone Linux/macOS binaries download the matching GitHub release asset and verify it against the release `checksums.txt` before atomically replacing the executable. Windows standalone installs and unsupported architectures print the manual commands. Declining records the version in `update-check.json` so the same release is not prompted again. Non-interactive runs print the manual commands.
+
+The result is cached in `update-check.json` (`0600`) beside `registry.json`; a failed check records the attempt with an empty latest version so it does not retry on every command. `AGY_AUTH_NO_UPDATE_CHECK=1` disables automatic checks. The check request sends only `User-Agent` and `Accept`; no account, credential, or registry data is included. The npm registry is the release feed even for Go/source installs, so the notice always includes npm and `go install` update commands.
 
 ## Backups
 
