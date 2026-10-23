@@ -15,13 +15,21 @@ import (
 var errCancelled = errors.New("cancelled")
 
 func (a *App) chooseAccount(accounts []registry.Account, activeID, title string, numbers map[string]int) (*registry.Account, error) {
+	return a.chooseAccountMode(accounts, activeID, title, numbers, false)
+}
+
+func (a *App) chooseAccountWithUsage(accounts []registry.Account, activeID, title string, numbers map[string]int) (*registry.Account, error) {
+	return a.chooseAccountMode(accounts, activeID, title, numbers, true)
+}
+
+func (a *App) chooseAccountMode(accounts []registry.Account, activeID, title string, numbers map[string]int, withUsage bool) (*registry.Account, error) {
 	if len(accounts) == 0 {
 		return nil, errors.New("no accounts available")
 	}
 	if !a.TTY || a.StdinFile == nil {
-		return a.chooseAccountNumbered(accounts, activeID, title, numbers)
+		return a.chooseAccountNumberedMode(accounts, activeID, title, numbers, withUsage)
 	}
-	index, err := a.chooseAccountInteractive(accounts, activeID, title, numbers)
+	index, err := a.chooseAccountInteractiveMode(accounts, activeID, title, numbers, withUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -96,9 +104,13 @@ func (a *App) pickerRows(accounts []registry.Account, activeID string, numbers m
 	return rows
 }
 
-func (a *App) chooseAccountNumbered(accounts []registry.Account, activeID, title string, numbers map[string]int) (*registry.Account, error) {
-	rows := a.pickerRows(accounts, activeID, numbers)
+func (a *App) chooseAccountNumberedMode(accounts []registry.Account, activeID, title string, numbers map[string]int, withUsage bool) (*registry.Account, error) {
 	fmt.Fprintln(a.Out, title)
+	rows := a.pickerRows(accounts, activeID, numbers)
+	if withUsage {
+		fmt.Fprintln(a.Out, "Loading quota...")
+		a.enrichUsage(rows)
+	}
 	a.renderAccountRows(rows, a.now())
 	answer, err := a.readLine("Select account number: ")
 	if err != nil {
@@ -119,11 +131,11 @@ func (a *App) chooseAccountNumbered(accounts []registry.Account, activeID, title
 	return nil, fmt.Errorf("invalid selection %q", answer)
 }
 
-func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, title string, numbers map[string]int) (int, error) {
+func (a *App) chooseAccountInteractiveMode(accounts []registry.Account, activeID, title string, numbers map[string]int, withUsage bool) (int, error) {
 	fd := int(a.StdinFile.Fd())
 	state, err := term.MakeRaw(fd)
 	if err != nil {
-		return a.chooseAccountInteractiveFallback(accounts, activeID, title, numbers, err)
+		return a.chooseAccountInteractiveFallback(accounts, activeID, title, numbers, withUsage, err)
 	}
 	defer term.Restore(fd, state)
 
@@ -138,6 +150,11 @@ func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, ti
 		}
 	}
 	rows := a.pickerRows(accounts, activeID, numbers)
+	if withUsage {
+		fmt.Fprintf(a.Out, "%s\r\n", a.bold(title))
+		fmt.Fprintf(a.Out, "%s\r\n", a.dim("Loading quota..."))
+		a.enrichUsage(rows)
+	}
 	now := a.now()
 
 	render := func() {
@@ -213,9 +230,9 @@ func (a *App) chooseAccountInteractive(accounts []registry.Account, activeID, ti
 	return -1, errors.New("input closed")
 }
 
-func (a *App) chooseAccountInteractiveFallback(accounts []registry.Account, activeID, title string, numbers map[string]int, cause error) (int, error) {
+func (a *App) chooseAccountInteractiveFallback(accounts []registry.Account, activeID, title string, numbers map[string]int, withUsage bool, cause error) (int, error) {
 	fmt.Fprintf(a.Err, "warning: interactive terminal unavailable (%v); using numbered selection\n", cause)
-	account, err := a.chooseAccountNumbered(accounts, activeID, title, numbers)
+	account, err := a.chooseAccountNumberedMode(accounts, activeID, title, numbers, withUsage)
 	if err != nil {
 		return -1, err
 	}

@@ -294,17 +294,35 @@ func TestSwitchAmbiguousPicker(t *testing.T) {
 
 	app, out, errOut := env.app("2\n")
 	app.TTY = true
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
 	if code := app.Run([]string{"switch", "example.com"}); code != 0 {
 		t.Fatalf("switch exit = %d, stderr = %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "Select an account to activate") {
-		t.Errorf("missing picker prompt: %q", out.String())
+	for _, want := range []string{"Select an account to activate", "PLAN", "WEEKLY RESET", "Gemini Models", "01", "02", "Switched to second"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("picker output missing %q: %q", want, out.String())
+		}
 	}
-	if !strings.Contains(out.String(), "01") || !strings.Contains(out.String(), "02") {
-		t.Errorf("picker missing shared numbers: %q", out.String())
+}
+
+func TestSwitchNoQueryPickerUsage(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
 	}
-	if !strings.Contains(out.String(), "Switched to second") {
-		t.Errorf("missing switch result: %q", out.String())
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	app, out, errOut := env.app("2\n")
+	app.TTY = true
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
+	if code := app.Run([]string{"switch"}); code != 0 {
+		t.Fatalf("switch exit = %d, stderr = %s", code, errOut)
+	}
+	for _, want := range []string{"PLAN", "5H", "WEEKLY", "GROUP", "WEEKLY RESET", "Gemini Models", "Switched to second"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("switch picker output missing %q: %q", want, out.String())
+		}
 	}
 }
 

@@ -46,13 +46,13 @@ func (a *App) cmdSwitch(args []string) int {
 			return a.failCode("previous_not_found", "Switch to another account first, then use `agy-auth switch -`.", "the previous account is no longer stored")
 		}
 	} else if fs.NArg() == 1 {
-		selected, code := a.resolveOne(reg, fs.Arg(0), "Select an account to activate")
+		selected, code := a.resolveOneWithUsage(reg, fs.Arg(0), "Select an account to activate")
 		if code != 0 {
 			return code
 		}
 		account = selected
 	} else {
-		selected, err := a.chooseAccount(reg.Accounts, reg.Active, "Select an account to activate", accountNumbers(reg))
+		selected, err := a.chooseAccountWithUsage(reg.Accounts, reg.Active, "Select an account to activate", accountNumbers(reg))
 		if errors.Is(err, errCancelled) {
 			fmt.Fprintln(a.Err, "cancelled")
 			return 1

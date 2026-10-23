@@ -163,6 +163,14 @@ func (a *App) resolveFailureWithNumbers(query string, matches []registry.Account
 }
 
 func (a *App) resolveOne(reg *registry.Registry, query, title string) (*registry.Account, int) {
+	return a.resolveOneMode(reg, query, title, false)
+}
+
+func (a *App) resolveOneWithUsage(reg *registry.Registry, query, title string) (*registry.Account, int) {
+	return a.resolveOneMode(reg, query, title, true)
+}
+
+func (a *App) resolveOneMode(reg *registry.Registry, query, title string, withUsage bool) (*registry.Account, int) {
 	matches := reg.Resolve(query)
 	switch len(matches) {
 	case 0:
@@ -171,7 +179,7 @@ func (a *App) resolveOne(reg *registry.Registry, query, title string) (*registry
 		return &matches[0], 0
 	default:
 		if a.TTY && !a.JSON {
-			selected, err := a.chooseAccount(matches, reg.Active, title, accountNumbers(reg))
+			selected, err := a.chooseAccountMode(matches, reg.Active, title, accountNumbers(reg), withUsage)
 			if errors.Is(err, errCancelled) {
 				fmt.Fprintln(a.Err, "cancelled")
 				return nil, 1

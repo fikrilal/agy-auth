@@ -23,6 +23,7 @@ All notable changes to this project are documented here.
 - `switch --live` auto-switch now prefers fresh named quota groups (Gemini, Claude/GPT, and tier-specific groups), falling back to the shared summary/model detail only when groups are unavailable; stale data is ignored.
 - List rows now include a `GROUP` column naming the limiting quota group; window JSON values may include `group`.
 - Account tables now show quota reset times instead of expiry/auth-method/last-used columns; `usage --all` separates account blocks with a blank line.
+- The `switch` picker now uses the same quota-enriched table as `list`, including plan, group, and reset columns.
 - List JSON rows now include `plan`, `usage`, and `usage_error`.
 - `agy-auth usage [<query>]` for Antigravity quota groups: Gemini Models, Claude and GPT models, and tier-specific groups such as Ultra.
 - `agy-auth usage --all` to compare the same group rows across every stored account.
