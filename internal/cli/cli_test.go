@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
-	"github.com/fikrilal/agy-auth/internal/backup"
 	"github.com/fikrilal/agy-auth/internal/oauth"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"github.com/fikrilal/agy-auth/internal/usage"
@@ -85,12 +84,13 @@ func newTestEnv(t *testing.T, withToken bool) *testEnv {
 func (e *testEnv) app(input string) (*App, *bytes.Buffer, *bytes.Buffer) {
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
+	store := registry.NewStore(e.storeDir)
 	return &App{
 		In:      strings.NewReader(input),
 		Out:     out,
 		Err:     errOut,
-		Store:   registry.NewStore(e.storeDir),
-		Storage: &agy.Storage{Service: "test", User: "test", FilePath: e.tokenPath, NoKeyring: true, Backup: backup.New(filepath.Join(e.storeDir, "backups"))},
+		Store:   store,
+		Storage: &agy.Storage{Service: "test", User: "test", FilePath: e.tokenPath, NoKeyring: true, Backup: store.Backups},
 		Now:     func() time.Time { return testNow },
 		TTY:     false,
 		OutTTY:  false,

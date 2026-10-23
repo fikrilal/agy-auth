@@ -61,6 +61,7 @@ The registry is only an index; the account snapshots are the source of truth.
 Default directory: `os.UserConfigDir()/agy-auth` (for example `~/.config/agy-auth` on Linux). Override with `AGY_AUTH_HOME`.
 
 ```
+encryption.key
 registry.json
 accounts/<id>.json
 backups/active-<timestamp>.json
@@ -71,11 +72,12 @@ backups/registry-<timestamp>.json
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "active": "acct_...",
   "previous": "acct_...",
   "config": {
-    "live_interval_seconds": 30
+    "live_interval_seconds": 30,
+    "snapshot_encryption": "aes-gcm-v1"
   },
   "accounts": [
     {
@@ -92,13 +94,13 @@ backups/registry-<timestamp>.json
 }
 ```
 
-Account IDs are the first 10 hex characters of SHA-256 over the Google subject (or the refresh-token fingerprint when no ID token is available). Snapshot files are stored with mode `0600`; the registry is `0600`; directories are `0700`.
+Account IDs are the first 10 hex characters of SHA-256 over the Google subject (or the refresh-token fingerprint when no ID token is available). Snapshot files and active-credential backups are AES-256-GCM ciphertext with the `agy-auth-encrypted:v1:` prefix; the key is `encryption.key` (`0600`), generated on first write and guarded by an exclusive `.lock` directory during creation. Registry backups contain only metadata and are not encrypted. Snapshot/backup files are `0600`; the registry is `0600`; directories are `0700`. Legacy plaintext snapshots are encrypted on first read, and legacy active backups are encrypted on the next registry load.
 
 The registry's `active` field is a hint. `list` and `status` treat the live credential as authoritative and match it against snapshots by subject first, then fingerprint, then a unique email.
 
 `previous` records the account that was active before the last switch (including `add`, `login`, and `import --activate`). `switch -` uses it; it is cleared when that account is removed, when the registry no longer contains it, or when it equals `active`.
 
-`config.live_interval_seconds` stores the live-view cadence. It is optional; missing or invalid values use 60 seconds. `config live --interval` accepts 5–3600 seconds, and `import --purge` carries the config forward.
+`config.live_interval_seconds` stores the live-view cadence. It is optional; missing or invalid values use 60 seconds. `config live --interval` accepts 5–3600 seconds, and `import --purge` carries the config forward. `config.snapshot_encryption` records the at-rest format (`aes-gcm-v1`). Registry version 2 is the current schema: `migrateRegistry` applies ordered migrations on load, persists the upgrade, and rejects newer versions. Version 1 files migrate by adding the encryption marker and encrypting existing active backups.
 
 ## Display and numbering
 

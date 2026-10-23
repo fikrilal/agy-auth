@@ -24,6 +24,7 @@ Antigravity CLI keeps one credential at a time. `agy-auth` snapshots accounts, s
 - Import and export raw credential JSON.
 - Machine-readable output with `--json`.
 - Timestamped backups before credential and registry changes, with `clean` for retention and orphan cleanup.
+- AES-256-GCM encryption for account snapshots and active-credential backups, with lazy migration of plaintext files and a versioned registry schema.
 - Uses the same credential storage as `agy`: the OS keyring with a file fallback for headless hosts.
 - No telemetry. Tokens only leave the machine for Google OAuth, the Google Code Assist quota API, and, if you use `--via-agy`, agy itself.
 
@@ -157,15 +158,20 @@ The document looks like this:
 
 ```
 ~/.config/agy-auth/
+  encryption.key
   registry.json
   accounts/<account-id>.json
   backups/active-<timestamp>.json
   backups/registry-<timestamp>.json
 ```
 
+`accounts/*.json` and `backups/active-*.json` are encrypted with AES-256-GCM (`agy-auth-encrypted:v1:`). `encryption.key` is the separate 32-byte key file (`0600`, directory `0700`); `path` prints its location. Existing plaintext active-credential backups are encrypted on the next registry load; plaintext snapshots are encrypted when first read. Registry backups contain metadata only and remain plaintext. Losing `encryption.key` makes encrypted snapshots unrecoverable, so back it up separately from the account files.
+
 `switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. `agy` refreshes expired access tokens itself with the stored refresh token.
 
 Before replacing or deleting the live credential, `agy-auth` snapshots the current value under `backups/` (`0600`, keep 5). `registry.json` is backed up when its contents change. `clean` prunes managed backups beyond retention and snapshots not referenced by the registry; if `registry.json` is missing, snapshots are preserved for rebuild.
+
+`registry.json` schema version 2 adds `config.snapshot_encryption: "aes-gcm-v1"`. Version 1 registries migrate automatically on load; unknown newer versions are rejected. `export` decrypts selected snapshots and writes plaintext credential JSON to the destination, so treat exported files as secrets.
 
 Queries resolve in this order: row number, exact account ID, exact alias, exact email, account ID prefix, then email/alias/ID substring. An ambiguous query opens a candidate picker in a terminal for `switch`, `alias`, `remove`, and `export`; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
 
@@ -311,7 +317,9 @@ Usage errors print `error:`, the command's `Usage:` block, and a `hint:` on stde
 - Plan, shared quota, and per-model quota display depend on undocumented Code Assist endpoints. If an endpoint or project context changes, the command reports a stable quota error or unavailable row instead of failing the account list; `--no-usage` skips the list lookup entirely.
 - Per-model IDs are provider-specific and may change when Antigravity updates its catalog.
 - The direct OAuth flow targets personal Google accounts (`auth_method: consumer`). For enterprise or custom sign-in flows, sign in with `agy` first and use `agy-auth add`.
-- Account snapshots are protected with `0600` file permissions. The keyring is protected by your OS login keyring.
+- Account snapshots and active-credential backups are encrypted with a local key file, not with your OS login keyring. Protect `encryption.key` and back it up separately; losing it makes the snapshots unrecoverable.
+- Exported credential files are intentionally plaintext. Delete them after use.
+- The keyring is protected by your OS login keyring.
 - On Linux, a locked or unresponsive keyring falls back to the file mirror after a short timeout.
 
 ## Packaging and publishing

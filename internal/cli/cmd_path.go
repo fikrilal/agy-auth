@@ -14,6 +14,7 @@ func (a *App) cmdPath(args []string) int {
 		"registry":          a.Store.Dir,
 		"registry_file":     a.Store.Registry,
 		"accounts_dir":      a.Store.AccountsDir,
+		"encryption_key":    a.Store.Vault.KeyPath,
 		"agy_token_file":    a.Storage.FilePath,
 		"keyring_service":   a.Storage.Service,
 		"keyring_user":      a.Storage.User,
@@ -27,6 +28,7 @@ func (a *App) cmdPath(args []string) int {
 	}
 	fmt.Fprintf(a.Out, "registry:      %s\n", a.Store.Dir)
 	fmt.Fprintf(a.Out, "accounts:      %s\n", a.Store.AccountsDir)
+	fmt.Fprintf(a.Out, "encryption:    %s\n", a.Store.Vault.KeyPath)
 	fmt.Fprintf(a.Out, "agy token:     %s\n", a.Storage.FilePath)
 	fmt.Fprintf(a.Out, "keyring:       %s / %s\n", a.Storage.Service, a.Storage.User)
 	return 0

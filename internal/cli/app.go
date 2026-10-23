@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
-	"github.com/fikrilal/agy-auth/internal/backup"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"github.com/fikrilal/agy-auth/internal/usage"
 	"golang.org/x/term"
@@ -49,7 +47,7 @@ func New() (*App, error) {
 		return nil, err
 	}
 	storage := agy.DefaultStorage()
-	storage.Backup = backup.New(filepath.Join(store.Dir, "backups"))
+	storage.Backup = store.Backups
 	usageClient := usage.NewClient(Version)
 	return &App{
 		In:          os.Stdin,

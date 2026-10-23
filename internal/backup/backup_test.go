@@ -1,12 +1,27 @@
 package backup
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+type prefixCodec struct{}
+
+func (prefixCodec) Encode(raw []byte) ([]byte, error) {
+	return append([]byte("enc:"), raw...), nil
+}
+
+func (prefixCodec) Decode(raw []byte) ([]byte, error) {
+	return bytes.TrimPrefix(raw, []byte("enc:")), nil
+}
+
+func (prefixCodec) IsEncrypted(raw []byte) bool {
+	return bytes.HasPrefix(raw, []byte("enc:"))
+}
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
@@ -78,6 +93,58 @@ func addOldBackup(t *testing.T, store *Store, kind Kind, payload string) {
 	t.Helper()
 	path := filepath.Join(store.Dir, fmt.Sprintf("%s-20250101T000000.000000000Z.json", kind))
 	if err := writeFileAtomic(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSnapshotEncryptsActiveAndDedupes(t *testing.T) {
+	store := newTestStore(t)
+	store.SetCodec(prefixCodec{})
+	for i := 0; i < 2; i++ {
+		if err := store.Snapshot(Active, []byte("secret")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Snapshot(Registry, []byte("registry")); err != nil {
+		t.Fatal(err)
+	}
+	active, _ := store.Managed(Active)
+	if len(active) != 1 {
+		t.Fatalf("active backups = %d", len(active))
+	}
+	data, err := os.ReadFile(active[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "enc:secret" {
+		t.Errorf("active backup = %q", data)
+	}
+	registry, _ := store.Managed(Registry)
+	data, err = os.ReadFile(registry[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "registry" {
+		t.Errorf("registry backup = %q", data)
+	}
+}
+
+func TestEncryptAllUpgradesPlaintextBackups(t *testing.T) {
+	store := newTestStore(t)
+	addOldBackup(t, store, Active, "old-secret")
+	store.SetCodec(prefixCodec{})
+	if err := store.EncryptAll(); err != nil {
+		t.Fatal(err)
+	}
+	managed, _ := store.Managed(Active)
+	data, err := os.ReadFile(managed[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "enc:old-secret" {
+		t.Errorf("upgraded backup = %q", data)
+	}
+	if err := store.EncryptAll(); err != nil {
 		t.Fatal(err)
 	}
 }

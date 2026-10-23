@@ -1,5 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
+  "config": {
+    "snapshot_encryption": "aes-gcm-v1"
+  },
   "active": "acct_test000001",
   "accounts": [
     {

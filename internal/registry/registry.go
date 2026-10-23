@@ -19,9 +19,27 @@ import (
 	"github.com/fikrilal/agy-auth/internal/backup"
 )
 
-const Version = 1
+const Version = 2
 
 var ErrBackup = errors.New("registry backup failed")
+
+const snapshotEncryption = "aes-gcm-v1"
+
+type migration func(*Registry) error
+
+var migrations = map[int]migration{
+	1: migrateV1ToV2,
+}
+
+func migrateV1ToV2(reg *Registry) error {
+	if reg.Config == nil {
+		reg.Config = &Config{}
+	}
+	if reg.Config.SnapshotEncryption == "" {
+		reg.Config.SnapshotEncryption = snapshotEncryption
+	}
+	return nil
+}
 
 type Account struct {
 	ID          string    `json:"id"`
@@ -48,7 +66,8 @@ func (a Account) DisplayName() string {
 }
 
 type Config struct {
-	LiveIntervalSeconds int `json:"live_interval_seconds,omitempty"`
+	LiveIntervalSeconds int    `json:"live_interval_seconds,omitempty"`
+	SnapshotEncryption  string `json:"snapshot_encryption,omitempty"`
 }
 
 type Registry struct {
@@ -70,6 +89,7 @@ type Store struct {
 	Dir         string
 	AccountsDir string
 	Registry    string
+	Vault       *agy.SnapshotVault
 	Backups     *backup.Store
 }
 
@@ -85,18 +105,22 @@ func DefaultStore() (*Store, error) {
 }
 
 func NewStore(dir string) *Store {
+	vault := agy.NewSnapshotVault(filepath.Join(dir, "encryption.key"))
+	backups := backup.New(filepath.Join(dir, "backups"))
+	backups.SetCodec(vault)
 	return &Store{
 		Dir:         dir,
 		AccountsDir: filepath.Join(dir, "accounts"),
 		Registry:    filepath.Join(dir, "registry.json"),
-		Backups:     backup.New(filepath.Join(dir, "backups")),
+		Vault:       vault,
+		Backups:     backups,
 	}
 }
 
 func (s *Store) Load() (*Registry, error) {
 	raw, err := os.ReadFile(s.Registry)
 	if errors.Is(err, os.ErrNotExist) {
-		return &Registry{Version: Version}, nil
+		return &Registry{Version: Version, Config: &Config{SnapshotEncryption: snapshotEncryption}}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read registry: %w", err)
@@ -105,11 +129,9 @@ func (s *Store) Load() (*Registry, error) {
 	if err := json.Unmarshal(raw, &reg); err != nil {
 		return nil, fmt.Errorf("parse registry %s: %w", s.Registry, err)
 	}
-	if reg.Version == 0 {
-		reg.Version = Version
-	}
-	if reg.Version > Version {
-		return nil, fmt.Errorf("registry version %d is newer than supported version %d", reg.Version, Version)
+	originalVersion := reg.Version
+	if err := migrateRegistry(&reg); err != nil {
+		return nil, err
 	}
 	seenIDs := make(map[string]bool, len(reg.Accounts))
 	seenAliases := make(map[string]string, len(reg.Accounts))
@@ -140,12 +162,48 @@ func (s *Store) Load() (*Registry, error) {
 		reg.Previous = ""
 	}
 	reg.SortAccounts()
+	if originalVersion < Version {
+		if err := s.Save(&reg); err != nil {
+			return nil, fmt.Errorf("persist registry migration: %w", err)
+		}
+	}
+	if s.Backups != nil {
+		if err := s.Backups.EncryptAll(); err != nil {
+			return nil, fmt.Errorf("encrypt existing backups: %w", err)
+		}
+	}
 	return &reg, nil
 }
 
-func (s *Store) Save(reg *Registry) error {
+func migrateRegistry(reg *Registry) error {
 	if reg.Version == 0 {
-		reg.Version = Version
+		reg.Version = 1
+	}
+	if reg.Version > Version {
+		return fmt.Errorf("registry version %d is newer than supported version %d", reg.Version, Version)
+	}
+	for reg.Version < Version {
+		migrate := migrations[reg.Version]
+		if migrate == nil {
+			return fmt.Errorf("no registry migration from version %d", reg.Version)
+		}
+		if err := migrate(reg); err != nil {
+			return fmt.Errorf("migrate registry version %d: %w", reg.Version, err)
+		}
+		reg.Version++
+	}
+	if reg.Config == nil {
+		reg.Config = &Config{}
+	}
+	if reg.Config.SnapshotEncryption == "" {
+		reg.Config.SnapshotEncryption = snapshotEncryption
+	}
+	return nil
+}
+
+func (s *Store) Save(reg *Registry) error {
+	if err := migrateRegistry(reg); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return fmt.Errorf("create registry directory: %w", err)
@@ -198,12 +256,28 @@ func (s *Store) SaveToken(id string, raw []byte) error {
 	if err := os.Chmod(s.AccountsDir, 0o700); err != nil {
 		return fmt.Errorf("harden accounts directory: %w", err)
 	}
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, raw) {
-		return os.Chmod(path, 0o600)
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	encoded := raw
+	if s.Vault != nil {
+		encoded, err = s.Vault.Encode(raw)
+		if err != nil {
+			return fmt.Errorf("encrypt account %s: %w", id, err)
+		}
+	}
+	if existing, err := os.ReadFile(path); err == nil {
+		encrypted := s.Vault != nil && s.Vault.IsEncrypted(existing)
+		existingPlain := existing
+		if encrypted {
+			if decoded, err := s.Vault.Decode(existing); err == nil {
+				existingPlain = decoded
+			}
+		}
+		if bytes.Equal(existingPlain, raw) && (encrypted || s.Vault == nil) {
+			return os.Chmod(path, 0o600)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return writeFileAtomic(path, raw, 0o600)
+	return writeFileAtomic(path, encoded, 0o600)
 }
 
 func (s *Store) LoadToken(id string) ([]byte, error) {
@@ -215,7 +289,26 @@ func (s *Store) LoadToken(id string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read account %s: %w", id, err)
 	}
-	return raw, nil
+	plain := raw
+	if s.Vault != nil {
+		plain, err = s.Vault.Decode(raw)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt account %s: %w", id, err)
+		}
+		if !s.Vault.IsEncrypted(raw) {
+			if err := s.SaveToken(id, plain); err != nil {
+				return nil, fmt.Errorf("encrypt account %s: %w", id, err)
+			}
+		}
+	}
+	return plain, nil
+}
+
+func (s *Store) DecodeToken(raw []byte) ([]byte, error) {
+	if s.Vault == nil {
+		return raw, nil
+	}
+	return s.Vault.Decode(raw)
 }
 
 func (s *Store) DeleteToken(id string) error {

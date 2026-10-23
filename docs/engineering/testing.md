@@ -12,6 +12,7 @@ The test strategy is simple: behavior is tested at the lowest layer that proves 
 | OAuth | `internal/oauth/oauth_test.go` | PKCE, auth URL, code normalization, token exchange, refresh, discovery |
 | Usage | `internal/usage/usage_test.go` | request shape, project/User-Agent, token refresh, grouped summary, full/detail parsing, cache/stale fallback |
 | CLI behavior | `internal/cli/cli_test.go` | lifecycle, help parity, JSON output, usage columns, `usage --all` groups, live interval, model-aware auto-switch |
+| Encryption/migrations | `internal/agy/snapshot_test.go`, `internal/registry/registry_test.go`, `internal/backup/backup_test.go` | ciphertext round-trip, key permissions, plaintext migration, v1→v2 registry upgrade, encrypted backups |
 | Contracts | `harness/fixtures` + `harness contracts` | independent credential/registry shapes |
 | Keyring | `TestKeyringRoundTrip` (opt-in) | real Secret Service round-trip with a throwaway service |
 | TUI/PTY | `internal/cli/{keys,pty}_test.go` | key decoding, type-ahead, incremental paint, live PTY open/navigate/quit |

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -490,6 +491,155 @@ func TestRemoveAndPermissions(t *testing.T) {
 	}
 	if len(reloaded.Accounts) != 0 {
 		t.Errorf("accounts = %d", len(reloaded.Accounts))
+	}
+}
+
+func TestSaveTokenEncryptsAtRest(t *testing.T) {
+	store := NewStore(t.TempDir())
+	raw := testToken(t, "user@example.com", "subject-encrypt", "refresh-secret", time.Now().Add(time.Hour))
+	result, err := store.Upsert(raw, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.AccountTokenPath(result.Account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "refresh-secret") || strings.Contains(string(data), "access-refresh-secret") {
+		t.Fatalf("snapshot contains plaintext credentials: %q", data)
+	}
+	if !store.Vault.IsEncrypted(data) {
+		t.Fatalf("snapshot is not encrypted: %q", data)
+	}
+	loaded, err := store.LoadToken(result.Account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded) != string(raw) {
+		t.Error("round trip changed the credential")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.Vault.IsEncrypted(after) {
+		t.Error("reading the snapshot decrypted it on disk")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("snapshot permissions = %o", info.Mode().Perm())
+	}
+	if _, err := os.Stat(store.Vault.KeyPath); err != nil {
+		t.Errorf("key file missing: %v", err)
+	}
+}
+
+func TestLoadTokenMigratesPlaintextSnapshot(t *testing.T) {
+	store := NewStore(t.TempDir())
+	raw := testToken(t, "legacy@example.com", "subject-legacy", "refresh-legacy", time.Now().Add(time.Hour))
+	result, err := store.Upsert(raw, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.AccountTokenPath(result.Account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadToken(result.Account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded) != string(raw) {
+		t.Error("plaintext migration changed the credential")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.Vault.IsEncrypted(data) {
+		t.Error("plaintext snapshot was not encrypted on load")
+	}
+}
+
+func TestLoadMigratesV1Registry(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"version":1,"config":{"live_interval_seconds":42},"accounts":[]}`)
+	if err := os.WriteFile(store.Registry, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Version != Version {
+		t.Errorf("version = %d", reg.Version)
+	}
+	if reg.Config == nil || reg.Config.SnapshotEncryption != snapshotEncryption || reg.Config.LiveIntervalSeconds != 42 {
+		t.Errorf("config = %+v", reg.Config)
+	}
+	persisted, err := os.ReadFile(store.Registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved Registry
+	if err := json.Unmarshal(persisted, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Version != Version || saved.Config == nil || saved.Config.SnapshotEncryption != snapshotEncryption {
+		t.Errorf("persisted registry = %+v", saved)
+	}
+}
+
+func TestLoadMigratesPlaintextBackups(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	if err := os.MkdirAll(store.Backups.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	backupPath := filepath.Join(store.Backups.Dir, "active-20250101T000000.000000000Z.json")
+	if err := os.WriteFile(backupPath, []byte(`{"token":{"refresh_token":"backup-secret"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"version":1,"accounts":[]}`)
+	if err := os.WriteFile(store.Registry, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.Vault.IsEncrypted(data) || strings.Contains(string(data), "backup-secret") {
+		t.Fatalf("backup was not encrypted: %q", data)
+	}
+}
+
+func TestLoadRejectsNewerRegistryVersion(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := os.MkdirAll(store.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Registry, []byte(`{"version":99,"accounts":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(); err == nil {
+		t.Fatal("newer registry version was accepted")
 	}
 }
 

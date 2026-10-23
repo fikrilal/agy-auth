@@ -23,11 +23,22 @@ const (
 
 var managedPattern = regexp.MustCompile(`^(active|registry)-\d{8}T\d{6}\.\d{9}Z(-\d+)?\.json$`)
 
+type Codec interface {
+	Encode([]byte) ([]byte, error)
+	Decode([]byte) ([]byte, error)
+	IsEncrypted([]byte) bool
+}
+
 // Store manages timestamped credential and registry snapshots. Only names that
 // match the managed pattern are ever pruned or removed.
 type Store struct {
-	Dir string
-	Now func() time.Time
+	Dir   string
+	Codec Codec
+	Now   func() time.Time
+}
+
+func (s *Store) SetCodec(codec Codec) {
+	s.Codec = codec
 }
 
 func New(dir string) *Store {
@@ -41,13 +52,29 @@ func (s *Store) Snapshot(kind Kind, raw []byte) error {
 	if err := s.ensureDir(); err != nil {
 		return err
 	}
+	encoded := raw
+	if kind == Active && s.Codec != nil {
+		var err error
+		encoded, err = s.Codec.Encode(raw)
+		if err != nil {
+			return err
+		}
+	}
 	existing, err := s.Managed(kind)
 	if err != nil {
 		return err
 	}
 	for _, path := range existing {
 		data, err := os.ReadFile(path)
-		if err == nil && bytes.Equal(data, raw) {
+		if err != nil {
+			continue
+		}
+		if kind == Active && s.Codec != nil {
+			if decoded, err := s.Codec.Decode(data); err == nil {
+				data = decoded
+			}
+		}
+		if bytes.Equal(data, raw) {
 			return nil
 		}
 	}
@@ -61,11 +88,40 @@ func (s *Store) Snapshot(kind Kind, raw []byte) error {
 		}
 		path = filepath.Join(s.Dir, fmt.Sprintf("%s-%d.json", base, i))
 	}
-	if err := writeFileAtomic(path, raw, 0o600); err != nil {
+	if err := writeFileAtomic(path, encoded, 0o600); err != nil {
 		return err
 	}
 	_, err = s.Prune(kind, Retention, false)
 	return err
+}
+
+// EncryptAll upgrades plaintext active-credential backups in place. Registry
+// backups contain no credentials and are left alone.
+func (s *Store) EncryptAll() error {
+	if s.Codec == nil {
+		return nil
+	}
+	paths, err := s.Managed(Active)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if s.Codec.IsEncrypted(data) {
+			continue
+		}
+		encoded, err := s.Codec.Encode(data)
+		if err != nil {
+			return err
+		}
+		if err := writeFileAtomic(path, encoded, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Managed returns managed backup paths for a kind, newest first.

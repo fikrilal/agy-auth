@@ -81,7 +81,14 @@ func (a *App) cmdImport(args []string) int {
 			report.Files = append(report.Files, event)
 			continue
 		}
-		if _, err := agy.ParseTokenFile(raw); err != nil {
+		plain, err := a.Store.DecodeToken(raw)
+		if err != nil {
+			event.Outcome = outcomeSkipped
+			event.Reason = "unreadable"
+			report.Files = append(report.Files, event)
+			continue
+		}
+		if _, err := agy.ParseTokenFile(plain); err != nil {
 			event.Outcome = outcomeSkipped
 			event.Reason = "invalid credential"
 			report.Files = append(report.Files, event)
@@ -94,7 +101,7 @@ func (a *App) cmdImport(args []string) int {
 			aliasValue = *alias
 			activateValue = *activate
 		}
-		result, err := a.Store.Upsert(raw, aliasValue, activateValue)
+		result, err := a.Store.Upsert(plain, aliasValue, activateValue)
 		if err != nil {
 			if errors.Is(err, registry.ErrBackup) {
 				return a.failCode("backup_error", "Check the backup directory permissions.", "could not back up the account registry")
@@ -114,7 +121,7 @@ func (a *App) cmdImport(args []string) int {
 		report.Files = append(report.Files, event)
 		report.Imported = append(report.Imported, account)
 		if !fromDirectory {
-			singleRaw = raw
+			singleRaw = plain
 		}
 	}
 	summarizeImport(&report)
@@ -187,10 +194,23 @@ func (a *App) purgeRegistry() int {
 			report.Files = append(report.Files, event)
 			continue
 		}
-		account, err := registry.AccountFromRaw(raw)
+		plain, err := a.Store.DecodeToken(raw)
+		if err != nil {
+			event.Outcome = outcomeSkipped
+			event.Reason = "unreadable"
+			report.Files = append(report.Files, event)
+			continue
+		}
+		account, err := registry.AccountFromRaw(plain)
 		if err != nil {
 			event.Outcome = outcomeSkipped
 			event.Reason = "invalid credential"
+			report.Files = append(report.Files, event)
+			continue
+		}
+		if err := a.Store.SaveToken(account.ID, plain); err != nil {
+			event.Outcome = outcomeSkipped
+			event.Reason = "could not encrypt credential"
 			report.Files = append(report.Files, event)
 			continue
 		}

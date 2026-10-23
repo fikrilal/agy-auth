@@ -9,6 +9,8 @@ All notable changes to this project are documented here.
 - Repository harness with custom Go AST lints, secret scanning, credential/registry contract fixtures, doctor, git hooks, and `fast`/`full`/`ci` verification profiles.
 - Documentation index, engineering guides, execution-plan scaffold, and ADR process.
 - Timestamped backups for the live credential and registry, keeping the newest 5 of each with `0600`/`0700` permissions.
+- AES-256-GCM encryption for account snapshots and active-credential backups, with legacy plaintext migration and a separate `encryption.key`.
+- Registry schema version 2 with ordered migrations, `config.snapshot_encryption`, and rejection of newer schema versions.
 - `agy-auth clean [--dry-run]` to prune managed backups and orphan snapshots.
 - Per-file import/export reports with `imported`/`updated`/`skipped` outcomes and a summary.
 - `agy-auth import --purge` to rebuild `registry.json` from stored snapshots, carrying aliases and active/previous where possible.
