@@ -1,6 +1,6 @@
 {
   "name": "@fikrilal/agy-auth",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Multi-account switcher for Google Antigravity CLI (agy)",
   "license": "MIT",
   "author": "ahmad fikril <fikrildev@gmail.com>",
@@ -18,7 +18,8 @@
   "files": [
     "npm/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "assets/"
   ],
   "scripts": {
     "build": "go build -o bin/agy-auth ./cmd/agy-auth",

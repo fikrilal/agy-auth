@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-25
+
+### Added
+
+- Antigravity Desktop app support: multi-account profile switching for Electron config (`~/.config/Antigravity/`), session snapshot/restore (`Cookies`, `Local Storage`, `app_storage.json`, `Preferences`), safe process termination, and background relaunch.
+- `--target=all|cli|desktop` flag for `agy-auth switch`, `rotate`, and `add` to target the CLI credential, Desktop profile, or both (default `all`).
+- `--relaunch` flag to gracefully terminate and restart Antigravity Desktop after account switching.
+- `--close-desktop` flag to safely close Antigravity Desktop before switching without reopening.
+- Standalone `agy-auth rotate` command: automatically query 5-hour quota across stored accounts, check active account exhaustion, and switch to the healthiest account with remaining quota.
+- `--force` flag on `rotate` to rotate even when the current active account still has remaining quota.
+- Shared `switchAccount` execution logic unifying CLI credential swapping and Desktop profile management across `switch` and `rotate`.
+- Interactive account selection cursor prefix (`>`) and colored highlight styling.
+- Bundled `assets/` in npm package distribution for self-contained documentation rendering.
+
+### Changed
+
+- Documentation and user guides updated for unified CLI + Desktop switching and the `rotate` command.
+
 ## [0.2.0] - 2026-10-23
 
 ### Added
@@ -67,5 +85,6 @@ All notable changes to this project are documented here.
 - npm distribution with prebuilt Linux, macOS, and Windows binaries for x64 and arm64.
 - GitHub Actions CI and release workflows.
 
+[0.3.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.3.0
 [0.2.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.2.0
 [0.1.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.1.0

@@ -5,7 +5,7 @@
 | Status | completed |
 | Owner | fikrilal |
 | Date | 2026-10-25 |
-| Related | [`_WIP/2026-10-25_antigravity-desktop-support-proposal.md`](../../../_WIP/2026-10-25_antigravity-desktop-support-proposal.md), [`docs/internals.md`](../../internals.md) |
+| Related | [`docs/adr/0002-antigravity-desktop-support.md`](../../adr/0002-antigravity-desktop-support.md), [`docs/internals.md`](../../internals.md) |
 
 ## Objective
 

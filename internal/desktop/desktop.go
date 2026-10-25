@@ -327,21 +327,11 @@ func (m *Manager) Relaunch() error {
 		return fmt.Errorf("%w: %s", ErrBinaryNotFound, bin)
 	}
 	cmd := exec.Command(bin)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	cmd.SysProcAttr = detachSysProcAttr()
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	return cmd.Start()
-}
-
-func isProcessAlive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 func findDefaultProcesses() (bool, int, error) {

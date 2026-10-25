@@ -4,7 +4,7 @@
 - **Date:** 2026-10-25
 - **Decision makers:** fikrilal
 - **Consulted:**
-- **Related:** [`_WIP/2026-10-25_antigravity-desktop-support-proposal.md`](../../_WIP/2026-10-25_antigravity-desktop-support-proposal.md), [`docs/exec-plans/completed/2026-10-25_antigravity-desktop-support.md`](../exec-plans/completed/2026-10-25_antigravity-desktop-support.md), [`docs/internals.md`](../internals.md)
+- **Related:** [`docs/exec-plans/completed/2026-10-25_antigravity-desktop-support.md`](../exec-plans/completed/2026-10-25_antigravity-desktop-support.md), [`docs/internals.md`](../internals.md)
 
 ## Context
 
