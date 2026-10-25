@@ -225,7 +225,7 @@ func checkKeyringBoundary(info *fileInfo) []Finding {
 }
 
 func checkAtomicWrites(info *fileInfo) []Finding {
-	if info.isTest || (!repo.Under(info.dir, "internal/agy") && !repo.Under(info.dir, "internal/registry")) {
+	if info.isTest || (!repo.Under(info.dir, "internal/agy") && !repo.Under(info.dir, "internal/registry") && !repo.Under(info.dir, "internal/desktop")) {
 		return nil
 	}
 	allowed := functionRanges(info.file, "writeFileAtomic")
@@ -312,10 +312,12 @@ func checkArchitecture(info *fileInfo) []Finding {
 		allowed = []string{"internal/agy"}
 	case info.dir == "internal/usage":
 		allowed = []string{"internal/agy", "internal/oauth"}
+	case info.dir == "internal/desktop":
+		allowed = []string{"internal/backup"}
 	case info.dir == "internal/cli":
-		allowed = []string{"internal/agy", "internal/registry", "internal/oauth", "internal/backup", "internal/usage"}
+		allowed = []string{"internal/agy", "internal/registry", "internal/oauth", "internal/backup", "internal/usage", "internal/desktop"}
 	case repo.Under(info.dir, "internal/harness"):
-		allowed = []string{"internal/harness", "internal/agy", "internal/registry"}
+		allowed = []string{"internal/harness", "internal/agy", "internal/registry", "internal/desktop"}
 	default:
 		allowed = []string{}
 	}

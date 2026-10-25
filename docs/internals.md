@@ -240,6 +240,25 @@ If Google rotates the client:
 4. Do not commit the values themselves; keep only the hashes.
 5. Verify with `agy-auth login --no-browser` and `go test ./internal/oauth`.
 
+## Antigravity Desktop App support
+
+The Antigravity Desktop application runs as an Electron environment with separate user data in `~/.config/Antigravity/` (on Linux), `~/Library/Application Support/Antigravity` (on macOS), and `%APPDATA%\Antigravity` (on Windows).
+
+Authentication in the Desktop app is preserved across a whitelist of session files:
+- `Cookies` and `Cookies-journal` (Chromium encrypted SQLite database)
+- `Local Storage/leveldb/` (Web storage for session identity)
+- `app_storage.json` (Application preferences and last logged-in username)
+- `Preferences` (Chromium browser preferences)
+
+On Linux, Chromium encrypts session cookies with a master key stored in Secret Service (`application: Antigravity`, `schema: chrome_libsecret_os_crypt_password_v2`). Because this key is shared per user profile on the machine, snapshotted profiles in `~/.config/agy-auth/desktop/<account-id>/` decrypt seamlessly when swapped.
+
+### Process protection and relaunch
+
+Modifying SQLite or LevelDB databases while the Electron app is running can lead to WAL lock conflicts or file corruption.
+- `agy-auth switch` checks if `antigravity` processes are active.
+- If running without `--relaunch`, CLI credentials switch cleanly and Desktop profile modification is safely deferred with an actionable warning.
+- With `--relaunch`, `agy-auth` gracefully terminates the main Desktop process (`SIGTERM`, 5-second deadline), swaps the profile files atomically, and starts Desktop detached in the background.
+
 ## File permissions and atomic writes
 
 Every write uses a temporary file in the destination directory, `chmod 0600`, `fsync`, and `rename`. This avoids partially written credentials and keeps permissions stable on Unix.

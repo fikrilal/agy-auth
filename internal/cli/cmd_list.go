@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/desktop"
 	"github.com/fikrilal/agy-auth/internal/registry"
 )
 
@@ -234,6 +235,7 @@ func timePtr(value time.Time) *time.Time {
 func (a *App) cmdAdd(args []string) int {
 	fs := a.newFlagSet("add")
 	alias := fs.String("alias", "", "short name used by switch/remove queries")
+	target := fs.String("target", "all", "capture target: all, cli, or desktop")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
@@ -261,11 +263,34 @@ func (a *App) cmdAdd(args []string) int {
 		return a.registryFailure(err, "could not save the live agy credential")
 	}
 
+	desktopCaptured := false
+	if a.Desktop != nil && (*target == "all" || *target == "desktop") {
+		if desktop.HasProfile(a.Desktop.ConfigDir) {
+			deskDest := a.Store.DesktopProfilePath(result.Account.ID)
+			if err := a.Desktop.Snapshot(deskDest); err == nil {
+				desktopCaptured = true
+				result.Account.HasDesktop = true
+				if reg, err := a.Store.Load(); err == nil {
+					for i := range reg.Accounts {
+						if reg.Accounts[i].ID == result.Account.ID {
+							reg.Accounts[i].HasDesktop = true
+							break
+						}
+					}
+					_ = a.Store.Save(reg)
+				}
+			}
+		} else if *target == "desktop" {
+			return a.failCode("desktop_profile_not_found", "Log in to Antigravity Desktop first.", "no active Antigravity Desktop profile found")
+		}
+	}
+
 	if a.JSON {
 		if err := a.emitJSON(map[string]any{
-			"created": result.Created,
-			"account": result.Account,
-			"source":  read.Source,
+			"created":          result.Created,
+			"account":          result.Account,
+			"source":           read.Source,
+			"desktop_captured": desktopCaptured,
 		}); err != nil {
 			return a.failCode("output_error", "", "could not write JSON output")
 		}
@@ -276,6 +301,9 @@ func (a *App) cmdAdd(args []string) int {
 		verb = "Added"
 	}
 	fmt.Fprintf(a.Out, "%s account %s [%s].\n", verb, result.Account.DisplayName(), result.Account.ID)
+	if desktopCaptured {
+		fmt.Fprintln(a.Out, "Captured Antigravity Desktop profile.")
+	}
 	return 0
 }
 

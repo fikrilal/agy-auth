@@ -24,6 +24,7 @@ Use the next number. Statuses: `Proposed`, `Accepted`, `Superseded`, `Deprecated
 | ADR | Status | Decision |
 |---|---|---|
 | [0001](0001-repository-harness.md) | Accepted | Adopt a repository harness with mechanical guardrails, without loop engineering |
+| [0002](0002-antigravity-desktop-support.md) | Accepted | Support Antigravity Desktop profiles alongside CLI with default dual-target switching and --relaunch |
 
 ## Template
 

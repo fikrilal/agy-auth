@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/desktop"
 	"github.com/fikrilal/agy-auth/internal/oauth"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"github.com/fikrilal/agy-auth/internal/usage"
@@ -85,12 +86,25 @@ func (e *testEnv) app(input string) (*App, *bytes.Buffer, *bytes.Buffer) {
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
 	store := registry.NewStore(e.storeDir)
+	deskMgr := desktop.NewManager(filepath.Join(e.dir, "desktop_config"), "/bin/echo", store.Backups.Dir)
+	deskMgr.Ops = &desktop.ProcessOps{
+		FindProcesses: func() ([]int, error) {
+			return nil, nil
+		},
+		KillProcess: func(pid int) error {
+			return nil
+		},
+		StartProcess: func(bin string) error {
+			return nil
+		},
+	}
 	return &App{
 		In:      strings.NewReader(input),
 		Out:     out,
 		Err:     errOut,
 		Store:   store,
 		Storage: &agy.Storage{Service: "test", User: "test", FilePath: e.tokenPath, NoKeyring: true, Backup: store.Backups},
+		Desktop: deskMgr,
 		Now:     func() time.Time { return testNow },
 		TTY:     false,
 		OutTTY:  false,
@@ -2817,5 +2831,133 @@ func TestEveryCommandHasHelp(t *testing.T) {
 		if !strings.Contains(out.String(), "Usage:") {
 			t.Errorf("%s --help output does not contain Usage: %q", alias, out.String())
 		}
+	}
+}
+
+func TestSwitchDesktopTargetAndRelaunch(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+	addSecondAccount(t, env, "two@example.com", "subject-2", "refresh-2", "two")
+
+	reg, _ := app.Store.Load()
+	matches := reg.Resolve("two")
+	if len(matches) == 0 {
+		t.Fatal("account two not found")
+	}
+	acct2 := matches[0]
+	deskProfile2 := app.Store.DesktopProfilePath(acct2.ID)
+	if err := os.MkdirAll(deskProfile2, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deskProfile2, "Cookies"), []byte("cookies-two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Switch target=desktop only (should restore desktop without mutating CLI token)
+	cliBefore, _ := os.ReadFile(env.tokenPath)
+	app, out, errOut := env.app("")
+	code := app.Run([]string{"switch", "two", "--target=desktop"})
+	if code != 0 {
+		t.Fatalf("switch --target=desktop failed (%d): %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Restored Antigravity Desktop profile") {
+		t.Errorf("output missing desktop restore notice: %q", out.String())
+	}
+	cliAfter, _ := os.ReadFile(env.tokenPath)
+	if !bytes.Equal(cliBefore, cliAfter) {
+		t.Error("switch --target=desktop should not modify CLI token")
+	}
+	deskRestored, err := os.ReadFile(filepath.Join(app.Desktop.ConfigDir, "Cookies"))
+	if err != nil || string(deskRestored) != "cookies-two" {
+		t.Fatalf("unexpected restored desktop cookies: %v, %s", err, string(deskRestored))
+	}
+
+	// 2. Switch with running desktop process without --relaunch (should warn/guard)
+	app, _, _ = env.app("")
+	app.Desktop.Ops = &desktop.ProcessOps{
+		FindProcesses: func() ([]int, error) {
+			return []int{9999}, nil
+		},
+	}
+	code = app.Run([]string{"switch", "two", "--target=desktop"})
+	if code == 0 {
+		t.Fatal("expected switch --target=desktop to fail when desktop is running without --relaunch")
+	}
+
+	// 3. Switch with running desktop process WITH --relaunch
+	killCalled := false
+	startCalled := false
+	app, out, errOut = env.app("")
+	app.Desktop.Ops = &desktop.ProcessOps{
+		FindProcesses: func() ([]int, error) {
+			if !killCalled {
+				return []int{9999}, nil
+			}
+			return nil, nil
+		},
+		KillProcess: func(pid int) error {
+			if pid == 9999 {
+				killCalled = true
+			}
+			return nil
+		},
+		StartProcess: func(bin string) error {
+			startCalled = true
+			return nil
+		},
+	}
+	code = app.Run([]string{"switch", "two", "--target=desktop", "--relaunch"})
+	if code != 0 {
+		t.Fatalf("switch --relaunch failed (%d): %s", code, errOut.String())
+	}
+	if !killCalled || !startCalled {
+		t.Errorf("expected kill and start called, got kill=%v, start=%v", killCalled, startCalled)
+	}
+	if !strings.Contains(out.String(), "Relaunched Antigravity Desktop") {
+		t.Errorf("output missing relaunch notice: %q", out.String())
+	}
+
+	// 4. Default target=all switches both CLI and desktop
+	app, out, errOut = env.app("")
+	code = app.Run([]string{"switch", "two"})
+	if code != 0 {
+		t.Fatalf("switch default failed (%d): %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Wrote") || !strings.Contains(out.String(), "Restored Antigravity Desktop profile") {
+		t.Errorf("expected both CLI and Desktop restored: %q", out.String())
+	}
+}
+
+func TestAddCapturesDesktopProfile(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, out, errOut := env.app("")
+
+	if err := os.MkdirAll(app.Desktop.ConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app.Desktop.ConfigDir, "Cookies"), []byte("active-live-cookies"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code := app.Run([]string{"add", "--alias", "captured"})
+	if code != 0 {
+		t.Fatalf("add failed (%d): %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Captured Antigravity Desktop profile") {
+		t.Errorf("output missing desktop capture notice: %q", out.String())
+	}
+
+	reg, _ := app.Store.Load()
+	matches := reg.Resolve("captured")
+	if len(matches) == 0 {
+		t.Fatal("captured account not found in registry")
+	}
+	acct := matches[0]
+	if !acct.HasDesktop {
+		t.Error("account HasDesktop should be true")
+	}
+	savedCookies, err := os.ReadFile(filepath.Join(app.Store.DesktopProfilePath(acct.ID), "Cookies"))
+	if err != nil || string(savedCookies) != "active-live-cookies" {
+		t.Fatalf("saved desktop profile cookies incorrect: %v, %s", err, string(savedCookies))
 	}
 }

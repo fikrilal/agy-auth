@@ -53,16 +53,16 @@ agy-auth switch work
 agy-auth switch -
 ```
 
-After switching, restart `agy`; a running session keeps the old credential in memory.
+After switching, restart `agy`; a running session keeps the old credential in memory. By default, `agy-auth switch` updates both the CLI credential and Antigravity Desktop profile; use `--relaunch` to restart Desktop automatically.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `agy-auth list [--active] [--no-sync] [--no-usage] [--live]` | List accounts, plan, and quota |
-| `agy-auth add [--alias <alias>]` | Save the account signed in to agy |
+| `agy-auth add [--alias <alias>] [--target all\|cli\|desktop]` | Save the account signed in to agy or Desktop |
 | `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
-| `agy-auth switch [<query>\|-] [--live]` | Switch interactively, by query, or to the previous account |
+| `agy-auth switch [<query>\|-] [--live] [--target all\|cli\|desktop] [--relaunch]` | Switch interactively, by query, or to the previous account |
 | `agy-auth remove [<query>...] [--all] [--logout] [--yes] [--live]` | Remove stored accounts |
 | `agy-auth alias set <query> <alias>` | Set an alias |
 | `agy-auth alias clear <query>` | Clear an alias |

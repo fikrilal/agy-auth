@@ -48,6 +48,8 @@ type Account struct {
 	Alias       string    `json:"alias,omitempty"`
 	AuthMethod  string    `json:"auth_method,omitempty"`
 	Fingerprint string    `json:"fingerprint,omitempty"`
+	HasCli      bool      `json:"has_cli,omitempty"`
+	HasDesktop  bool      `json:"has_desktop,omitempty"`
 	AddedAt     time.Time `json:"added_at"`
 	LastUsedAt  time.Time `json:"last_used_at,omitempty"`
 }
@@ -88,6 +90,7 @@ func (r *Registry) LiveIntervalSeconds() int {
 type Store struct {
 	Dir         string
 	AccountsDir string
+	DesktopDir  string
 	Registry    string
 	Vault       *agy.SnapshotVault
 	Backups     *backup.Store
@@ -111,6 +114,7 @@ func NewStore(dir string) *Store {
 	return &Store{
 		Dir:         dir,
 		AccountsDir: filepath.Join(dir, "accounts"),
+		DesktopDir:  filepath.Join(dir, "desktop"),
 		Registry:    filepath.Join(dir, "registry.json"),
 		Vault:       vault,
 		Backups:     backups,
@@ -311,6 +315,15 @@ func (s *Store) DecodeToken(raw []byte) ([]byte, error) {
 	return s.Vault.Decode(raw)
 }
 
+func (s *Store) DesktopProfilePath(id string) string {
+	return filepath.Join(s.DesktopDir, id)
+}
+
+func (s *Store) HasDesktopProfile(id string) bool {
+	info, err := os.Stat(s.DesktopProfilePath(id))
+	return err == nil && info.IsDir()
+}
+
 func (s *Store) DeleteToken(id string) error {
 	path, err := s.AccountTokenPath(id)
 	if err != nil {
@@ -319,6 +332,7 @@ func (s *Store) DeleteToken(id string) error {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("delete account %s: %w", id, err)
 	}
+	_ = os.RemoveAll(s.DesktopProfilePath(id))
 	return nil
 }
 
@@ -356,10 +370,7 @@ func (s *Store) Clean(dryRun bool) (CleanReport, error) {
 		known[account.ID] = true
 	}
 	entries, err := os.ReadDir(s.AccountsDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return report, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return report, err
 	}
 	for _, entry := range entries {
@@ -386,6 +397,29 @@ func (s *Store) Clean(dryRun bool) (CleanReport, error) {
 		}
 		if err := os.Remove(filepath.Join(s.AccountsDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return report, err
+		}
+	}
+	if s.DesktopDir != "" {
+		if dEntries, err := os.ReadDir(s.DesktopDir); err == nil {
+			for _, entry := range dEntries {
+				if !entry.IsDir() {
+					continue
+				}
+				id := entry.Name()
+				if !strings.HasPrefix(id, "acct_") || validateID(id) != nil {
+					continue
+				}
+				if known[id] {
+					continue
+				}
+				report.Snapshots = append(report.Snapshots, filepath.Join("desktop", id))
+				if dryRun {
+					continue
+				}
+				if err := os.RemoveAll(filepath.Join(s.DesktopDir, id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return report, err
+				}
+			}
 		}
 	}
 	return report, nil

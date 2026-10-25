@@ -23,7 +23,7 @@ This page covers behavior beyond the [README](../README.md): storage, quota view
 
 Before replacing or deleting the live credential, `agy-auth` snapshots the current value under `backups/` (`0600`, keep 5). `registry.json` is backed up when its contents change. `clean` prunes managed backups beyond retention and snapshots not referenced by the registry; if `registry.json` is missing, snapshots are preserved for rebuild.
 
-`switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. `agy` refreshes expired access tokens itself with the stored refresh token. Restart `agy` after switching; running sessions keep the old credential.
+`switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. By default, `switch` also swaps the Antigravity Desktop profile in `~/.config/Antigravity/` (`--target=all`). Pass `--target=cli` or `--target=desktop` to restrict switching to one environment. Use `--relaunch` to gracefully restart running Desktop processes during switch. `agy` refreshes expired access tokens itself with the stored refresh token. Restart `agy` after switching; running sessions keep the old credential.
 
 `export` decrypts selected snapshots and writes plaintext credential JSON to the destination. Treat exported files as secrets and delete them after use.
 

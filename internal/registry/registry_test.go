@@ -654,3 +654,33 @@ func TestLoadRejectsTraversalIDs(t *testing.T) {
 		t.Fatal("expected invalid account id error")
 	}
 }
+
+func TestDesktopProfilePathAndClean(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	orphanID := "acct_orphan12345"
+	orphanDir := store.DesktopProfilePath(orphanID)
+	if err := os.MkdirAll(orphanDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if !store.HasDesktopProfile(orphanID) {
+		t.Fatal("expected desktop profile to exist")
+	}
+
+	// Create valid registry without the orphan
+	reg := &Registry{Version: Version, Config: &Config{SnapshotEncryption: snapshotEncryption}}
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := store.Clean(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Snapshots) != 1 || report.Snapshots[0] != filepath.Join("desktop", orphanID) {
+		t.Fatalf("expected orphan desktop snapshot cleaned, got: %v", report.Snapshots)
+	}
+	if store.HasDesktopProfile(orphanID) {
+		t.Fatal("orphan desktop profile still exists after clean")
+	}
+}

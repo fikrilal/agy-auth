@@ -46,6 +46,11 @@ func (a *App) cmdStatus(args []string) int {
 	keyringRaw, fileRaw, keyringErr, fileErr := a.Storage.ReadBoth()
 	mirror := mirrorState(keyringRaw, fileRaw, keyringErr, fileErr)
 	running := runningAgyCount()
+	var desktopRunning bool
+	var desktopPid int
+	if a.Desktop != nil {
+		desktopRunning, desktopPid, _ = a.Desktop.IsRunning()
+	}
 
 	now := a.now()
 	var expiryAt time.Time
@@ -71,6 +76,13 @@ func (a *App) cmdStatus(args []string) int {
 			"mirror":            mirror,
 			"running_agy":       running,
 			"stored_accounts":   len(reg.Accounts),
+		}
+		if a.Desktop != nil {
+			payload["desktop_config"] = a.Desktop.ConfigDir
+			payload["desktop_running"] = desktopRunning
+			if desktopRunning {
+				payload["desktop_pid"] = desktopPid
+			}
 		}
 		if current != nil {
 			row := map[string]any{
@@ -136,6 +148,14 @@ func (a *App) cmdStatus(args []string) int {
 		fmt.Fprintln(a.Out, "agy:        not running")
 	default:
 		fmt.Fprintln(a.Out, "agy:        running state unknown on this platform")
+	}
+	if a.Desktop != nil {
+		switch {
+		case desktopRunning:
+			fmt.Fprintf(a.Out, "Desktop:    running (PID %d); restart with --relaunch on switch\n", desktopPid)
+		default:
+			fmt.Fprintln(a.Out, "Desktop:    not running")
+		}
 	}
 	fmt.Fprintf(a.Out, "Accounts:   %d stored\n", len(reg.Accounts))
 	return 0

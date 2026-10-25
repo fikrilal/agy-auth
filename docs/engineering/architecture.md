@@ -13,6 +13,7 @@ internal/agy/          credential JSON, keyring/file backend
 internal/registry/     account snapshots, metadata, queries
 internal/oauth/        PKCE login, token refresh, client discovery
 internal/usage/        plan/quota provider, full/model fetch, TTL caches
+internal/desktop/      Antigravity desktop profile discovery, snapshots, relaunch
 internal/backup/       timestamped credential/registry backups
 
 npm/bin/               Node shim for prebuilt binaries
@@ -24,13 +25,14 @@ docs/                  guides, plans, ADRs, internals
 ## Import direction
 
 ```text
-cmd/agy-auth -> internal/cli -> internal/{agy,registry,oauth,usage,backup}
+cmd/agy-auth -> internal/cli -> internal/{agy,registry,oauth,usage,backup,desktop}
 internal/registry -> internal/{agy,backup}
+internal/desktop  -> internal/backup
 internal/oauth    -> internal/agy
 internal/usage    -> internal/{agy,oauth}
 internal/agy      -> internal/backup + standard library + go-keyring
 internal/backup   -> standard library
-internal/harness  -> internal/{agy,registry} (dev tool only)
+internal/harness  -> internal/{agy,registry,desktop} (dev tool only)
 ```
 
 Production packages must not import `internal/harness`. The harness may import `internal/agy` and `internal/registry` for contract checks. The `architecture` lint enforces this graph; a new package requires an explicit policy update.

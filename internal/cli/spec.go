@@ -44,11 +44,12 @@ var commandSpecs = []CommandSpec{
 		Group:    "Account management",
 		Synopsis: "add",
 		Summary:  "Save the account currently signed in to agy",
-		Usage:    []string{"agy-auth add [--alias <alias>]"},
-		Description: "Save the account currently signed in to agy. This does not change the active\n" +
+		Usage:    []string{"agy-auth add [--alias <alias>] [--target <target>]"},
+		Description: "Save the account currently signed in to agy and Antigravity Desktop. This does not change the active\n" +
 			"account or contact Google. Use \"agy-auth login\" to add another account.",
 		Options: []OptionSpec{
 			{Flag: "--alias <alias>", Description: "Short name used by switch/remove queries"},
+			{Flag: "--target <target>", Description: "Capture target: all, cli, or desktop (default \"all\")"},
 		},
 	},
 	{
@@ -78,15 +79,24 @@ var commandSpecs = []CommandSpec{
 		Group:    "Account management",
 		Synopsis: "switch, use [query]",
 		Summary:  "Switch the active agy account",
-		Usage:    []string{"agy-auth switch [<query>|-] [--live]"},
-		Description: "Switch the active agy credential. Without a query, an interactive picker is\n" +
+		Usage:    []string{"agy-auth switch [<query>|-] [--live] [--target <target>] [--relaunch] [--close-desktop]"},
+		Description: "Switch the active agy and Antigravity Desktop credentials. Without a query, an interactive picker is\n" +
 			"shown. Queries accept a row number from \"agy-auth list\", an alias, an exact\n" +
 			"email, an email substring, or an account ID prefix. --live opens a refreshing\n" +
 			"view and switches on Enter.",
 		Options: []OptionSpec{
+			{Flag: "--target <target>", Description: "Switch target: all, cli, or desktop (default \"all\")"},
+			{Flag: "--relaunch", Description: "Relaunch Antigravity Desktop after switching"},
+			{Flag: "--close-desktop", Description: "Gracefully close Antigravity Desktop before switching"},
 			{Flag: "--live", Description: "Interactive live view; select and press Enter to switch"},
 		},
-		Examples: []string{"agy-auth switch work", "agy-auth switch 2", "agy-auth switch --live"},
+		Examples: []string{
+			"agy-auth switch work",
+			"agy-auth switch work --relaunch",
+			"agy-auth switch work --target=cli",
+			"agy-auth switch 2",
+			"agy-auth switch --live",
+		},
 		Notes: []string{
 			"Restart agy after switching; an already-running agy process keeps the old",
 			"credential in memory.",

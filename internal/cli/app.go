@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/desktop"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"github.com/fikrilal/agy-auth/internal/usage"
 	"golang.org/x/term"
@@ -24,6 +25,7 @@ type App struct {
 	Err              io.Writer
 	Store            *registry.Store
 	Storage          *agy.Storage
+	Desktop          *desktop.Manager
 	Usage            usage.Provider
 	UsageFull        usage.FullProvider
 	UsageGroups      usage.GroupsProvider
@@ -50,6 +52,11 @@ func New() (*App, error) {
 	}
 	storage := agy.DefaultStorage()
 	storage.Backup = store.Backups
+	var backupDir string
+	if store.Backups != nil {
+		backupDir = store.Backups.Dir
+	}
+	deskMgr := desktop.NewManager("", "", backupDir)
 	usageClient := usage.NewClient(Version)
 	return &App{
 		In:               os.Stdin,
@@ -57,6 +64,7 @@ func New() (*App, error) {
 		Err:              os.Stderr,
 		Store:            store,
 		Storage:          storage,
+		Desktop:          deskMgr,
 		Usage:            usage.NewCache(usageClient),
 		UsageFull:        usage.NewFullCache(usageClient),
 		UsageGroups:      usageClient,
