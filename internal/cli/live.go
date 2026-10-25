@@ -390,20 +390,7 @@ func autoSwitchCandidate(rows []accountRow) *accountRow {
 		return nil
 	}
 
-	var best *accountRow
-	var bestReset time.Time
-	for i := range rows {
-		row := &rows[i]
-		if row.ID == "" || row.ID == active.ID || !quotaAvailable(row) {
-			continue
-		}
-		reset := quotaNextReset(row)
-		if best == nil || (!reset.IsZero() && (bestReset.IsZero() || reset.Before(bestReset))) {
-			best = row
-			bestReset = reset
-		}
-	}
-	return best
+	return selectRotateCandidate(rows, active.ID)
 }
 
 func groupDataUsable(row *accountRow) bool {

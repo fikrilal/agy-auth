@@ -114,6 +114,8 @@ func (a *App) Run(args []string) int {
 		return a.cmdLogin(rest)
 	case "switch", "use":
 		return a.cmdSwitch(rest)
+	case "rotate":
+		return a.cmdRotate(rest)
 	case "remove", "rm":
 		return a.cmdRemove(rest)
 	case "alias":

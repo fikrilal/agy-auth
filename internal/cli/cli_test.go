@@ -2122,16 +2122,27 @@ func TestListActiveWithoutLiveCredential(t *testing.T) {
 }
 
 type testUsageProvider struct {
-	mu       sync.Mutex
-	snapshot usage.Snapshot
-	err      error
-	calls    int
+	mu        sync.Mutex
+	snapshot  usage.Snapshot
+	snapshots map[string]usage.Snapshot
+	err       error
+	calls     int
 }
 
-func (p *testUsageProvider) Fetch(context.Context, string, *agy.TokenFile) (usage.Snapshot, error) {
+func (p *testUsageProvider) Fetch(_ context.Context, key string, token *agy.TokenFile) (usage.Snapshot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
+	if p.snapshots != nil {
+		if s, ok := p.snapshots[key]; ok {
+			return s, p.err
+		}
+		if token != nil {
+			if s, ok := p.snapshots[token.Email()]; ok {
+				return s, p.err
+			}
+		}
+	}
 	return p.snapshot, p.err
 }
 
@@ -2959,5 +2970,240 @@ func TestAddCapturesDesktopProfile(t *testing.T) {
 	savedCookies, err := os.ReadFile(filepath.Join(app.Store.DesktopProfilePath(acct.ID), "Cookies"))
 	if err != nil || string(savedCookies) != "active-live-cookies" {
 		t.Fatalf("saved desktop profile cookies incorrect: %v, %s", err, string(savedCookies))
+	}
+}
+
+func TestRotateHealthyActive(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+
+	tok1 := makeCLIToken(t, "user1@example.com", "sub-1", "refresh-1")
+	tok2 := makeCLIToken(t, "user2@example.com", "sub-2", "refresh-2")
+	res1, _ := app.Store.Upsert(tok1, "first", false)
+	res2, _ := app.Store.Upsert(tok2, "second", false)
+	id1, id2 := res1.Account.ID, res2.Account.ID
+
+	reg, _ := app.Store.Load()
+	reg.Active = id1
+	_ = app.Store.Save(reg)
+
+	fiveReset := testNow.Add(2 * time.Hour)
+	weeklyReset := testNow.Add(24 * time.Hour)
+
+	provider := &testUsageProvider{
+		snapshots: map[string]usage.Snapshot{
+			id1: {FiveHour: &usage.Window{RemainingPercent: 80, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 80, ResetsAt: &weeklyReset}},
+			id2: {FiveHour: &usage.Window{RemainingPercent: 100, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 100, ResetsAt: &weeklyReset}},
+		},
+	}
+
+	app, out, errOut := env.app("")
+	app.Usage = provider
+	code := app.Run([]string{"rotate"})
+	if code != 0 {
+		t.Fatalf("rotate failed with %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Active account first") || !strings.Contains(out.String(), "is healthy") {
+		t.Errorf("output = %q", out.String())
+	}
+
+	app, out, _ = env.app("")
+	app.Usage = provider
+	code = app.Run([]string{"rotate", "--json"})
+	if code != 0 {
+		t.Fatalf("rotate --json failed with %d", code)
+	}
+	envl := decodeTestEnvelope(t, out)
+	var res map[string]any
+	if err := json.Unmarshal(envl.Data, &res); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if res["rotated"] != false || res["reason"] != "active_healthy" {
+		t.Errorf("unexpected json result: %+v", res)
+	}
+}
+
+func TestRotateExhaustedActive(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+
+	tok1 := makeCLIToken(t, "user1@example.com", "sub-1", "refresh-1")
+	tok2 := makeCLIToken(t, "user2@example.com", "sub-2", "refresh-2")
+	res1, _ := app.Store.Upsert(tok1, "first", false)
+	res2, _ := app.Store.Upsert(tok2, "second", false)
+	id1, id2 := res1.Account.ID, res2.Account.ID
+
+	reg, _ := app.Store.Load()
+	reg.Active = id1
+	_ = app.Store.Save(reg)
+
+	fiveReset := testNow.Add(2 * time.Hour)
+	weeklyReset := testNow.Add(24 * time.Hour)
+
+	provider := &testUsageProvider{
+		snapshots: map[string]usage.Snapshot{
+			id1: {FiveHour: &usage.Window{RemainingPercent: 0, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 80, ResetsAt: &weeklyReset}},
+			id2: {FiveHour: &usage.Window{RemainingPercent: 100, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 100, ResetsAt: &weeklyReset}},
+		},
+	}
+
+	app, out, errOut := env.app("")
+	app.Usage = provider
+	code := app.Run([]string{"rotate"})
+	if code != 0 {
+		t.Fatalf("rotate failed with %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Rotated to second") || !strings.Contains(out.String(), "(active account exhausted)") {
+		t.Errorf("output = %q", out.String())
+	}
+
+	reloaded, _ := app.Store.Load()
+	if reloaded.Active != id2 {
+		t.Errorf("active = %q, want %q", reloaded.Active, id2)
+	}
+}
+
+func TestRotateForced(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+
+	tok1 := makeCLIToken(t, "user1@example.com", "sub-1", "refresh-1")
+	tok2 := makeCLIToken(t, "user2@example.com", "sub-2", "refresh-2")
+	res1, _ := app.Store.Upsert(tok1, "first", false)
+	res2, _ := app.Store.Upsert(tok2, "second", false)
+	id1, id2 := res1.Account.ID, res2.Account.ID
+
+	reg, _ := app.Store.Load()
+	reg.Active = id1
+	_ = app.Store.Save(reg)
+
+	fiveReset := testNow.Add(2 * time.Hour)
+	weeklyReset := testNow.Add(24 * time.Hour)
+
+	provider := &testUsageProvider{
+		snapshots: map[string]usage.Snapshot{
+			id1: {FiveHour: &usage.Window{RemainingPercent: 80, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 80, ResetsAt: &weeklyReset}},
+			id2: {FiveHour: &usage.Window{RemainingPercent: 100, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 100, ResetsAt: &weeklyReset}},
+		},
+	}
+
+	app, out, errOut := env.app("")
+	app.Usage = provider
+	code := app.Run([]string{"rotate", "--force", "--json"})
+	if code != 0 {
+		t.Fatalf("rotate --force failed with %d: %s", code, errOut.String())
+	}
+	envl := decodeTestEnvelope(t, out)
+	var res map[string]any
+	if err := json.Unmarshal(envl.Data, &res); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if res["rotated"] != true || res["forced"] != true || res["reason"] != "forced" {
+		t.Errorf("unexpected json result: %+v", res)
+	}
+
+	reloaded, _ := app.Store.Load()
+	if reloaded.Active != id2 {
+		t.Errorf("active = %q, want %q", reloaded.Active, id2)
+	}
+}
+
+func TestRotateNoCandidateAvailable(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+
+	tok1 := makeCLIToken(t, "user1@example.com", "sub-1", "refresh-1")
+	tok2 := makeCLIToken(t, "user2@example.com", "sub-2", "refresh-2")
+	res1, _ := app.Store.Upsert(tok1, "first", false)
+	res2, _ := app.Store.Upsert(tok2, "second", false)
+	id1 := res1.Account.ID
+
+	reg, _ := app.Store.Load()
+	reg.Active = id1
+	_ = app.Store.Save(reg)
+
+	fiveReset := testNow.Add(2 * time.Hour)
+	weeklyReset := testNow.Add(24 * time.Hour)
+
+	provider := &testUsageProvider{
+		snapshots: map[string]usage.Snapshot{
+			id1:             {FiveHour: &usage.Window{RemainingPercent: 0, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 80, ResetsAt: &weeklyReset}},
+			res2.Account.ID: {FiveHour: &usage.Window{RemainingPercent: 0, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 80, ResetsAt: &weeklyReset}},
+		},
+	}
+
+	app, _, errOut := env.app("")
+	app.Usage = provider
+	code := app.Run([]string{"rotate"})
+	if code == 0 {
+		t.Fatalf("expected rotate to fail when no accounts have quota")
+	}
+	if !strings.Contains(errOut.String(), "no stored accounts have remaining quota") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestRotateNoAccounts(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	code := app.Run([]string{"rotate"})
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "no stored accounts") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestRotateDesktopTargetAndRelaunch(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+
+	tok1 := makeCLIToken(t, "user1@example.com", "sub-1", "refresh-1")
+	tok2 := makeCLIToken(t, "user2@example.com", "sub-2", "refresh-2")
+	res1, _ := app.Store.Upsert(tok1, "first", false)
+	res2, _ := app.Store.Upsert(tok2, "second", false)
+	id1, id2 := res1.Account.ID, res2.Account.ID
+
+	deskDir2 := app.Store.DesktopProfilePath(id2)
+	_ = os.MkdirAll(deskDir2, 0o700)
+	_ = os.WriteFile(filepath.Join(deskDir2, "Cookies"), []byte("cookies-2"), 0o600)
+
+	reg, _ := app.Store.Load()
+	reg.Active = id1
+	_ = app.Store.Save(reg)
+
+	fiveReset := testNow.Add(2 * time.Hour)
+	weeklyReset := testNow.Add(24 * time.Hour)
+
+	provider := &testUsageProvider{
+		snapshots: map[string]usage.Snapshot{
+			id1: {FiveHour: &usage.Window{RemainingPercent: 0, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 80, ResetsAt: &weeklyReset}},
+			id2: {FiveHour: &usage.Window{RemainingPercent: 100, ResetsAt: &fiveReset}, Weekly: &usage.Window{RemainingPercent: 100, ResetsAt: &weeklyReset}},
+		},
+	}
+
+	app, out, errOut := env.app("")
+	app.Usage = provider
+	startCalled := false
+	app.Desktop.Ops = &desktop.ProcessOps{
+		FindProcesses: func() ([]int, error) {
+			return nil, nil
+		},
+		StartProcess: func(bin string) error {
+			startCalled = true
+			return nil
+		},
+	}
+
+	code := app.Run([]string{"rotate", "--target=desktop", "--relaunch"})
+	if code != 0 {
+		t.Fatalf("rotate failed (%d): %s", code, errOut.String())
+	}
+	if !startCalled {
+		t.Errorf("desktop relaunch was not called")
+	}
+	if !strings.Contains(out.String(), "Relaunched Antigravity Desktop") {
+		t.Errorf("output missing relaunch message: %q", out.String())
 	}
 }

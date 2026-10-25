@@ -103,6 +103,32 @@ var commandSpecs = []CommandSpec{
 		},
 	},
 	{
+		Name:     "rotate",
+		Group:    "Account management",
+		Synopsis: "rotate",
+		Summary:  "Automatically switch to an account with available quota",
+		Usage:    []string{"agy-auth rotate [--target <target>] [--relaunch] [--close-desktop] [--force]"},
+		Description: "Check 5-hour quota across all stored accounts and automatically switch to\n" +
+			"the healthiest account with remaining quota when the active account is exhausted.\n" +
+			"Use --force to switch even if the active account is not exhausted.",
+		Options: []OptionSpec{
+			{Flag: "--target <target>", Description: "Switch target: all, cli, or desktop (default \"all\")"},
+			{Flag: "--relaunch", Description: "Relaunch Antigravity Desktop after switching"},
+			{Flag: "--close-desktop", Description: "Gracefully close Antigravity Desktop before switching"},
+			{Flag: "--force", Description: "Rotate even if the active account still has remaining quota"},
+		},
+		Examples: []string{
+			"agy-auth rotate",
+			"agy-auth rotate --relaunch",
+			"agy-auth rotate --force",
+			"agy-auth rotate --target=cli",
+		},
+		Notes: []string{
+			"Restart agy after switching; an already-running agy process keeps the old",
+			"credential in memory.",
+		},
+	},
+	{
 		Name:     "remove",
 		Aliases:  []string{"rm"},
 		Group:    "Account management",

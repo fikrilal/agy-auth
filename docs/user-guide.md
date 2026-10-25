@@ -25,6 +25,8 @@ Before replacing or deleting the live credential, `agy-auth` snapshots the curre
 
 `switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. By default, `switch` also swaps the Antigravity Desktop profile in `~/.config/Antigravity/` (`--target=all`). Pass `--target=cli` or `--target=desktop` to restrict switching to one environment. Use `--relaunch` to gracefully restart running Desktop processes during switch. `agy` refreshes expired access tokens itself with the stored refresh token. Restart `agy` after switching; running sessions keep the old credential.
 
+`rotate` inspects 5-hour quota across all stored accounts and automatically switches to the healthiest candidate with remaining quota when the active account is exhausted. If the active account is healthy, it reports the remaining quota and exits 0; pass `--force` to rotate unconditionally. It supports `--target=all|cli|desktop`, `--relaunch`, and `--close-desktop`.
+
 `export` decrypts selected snapshots and writes plaintext credential JSON to the destination. Treat exported files as secrets and delete them after use.
 
 ## Queries and tables
@@ -73,7 +75,7 @@ After `list`, `switch`, `status`, or `usage`, `agy-auth` checks the published np
 
 ## JSON output
 
-`list`, `add`, `login`, `switch`, `remove`, `current`, `status`, `usage`, `config`, `import`, `export`, `path`, and `version` support `--json`. Every response is one versioned envelope on stdout; warnings go to stderr.
+`list`, `add`, `login`, `switch`, `rotate`, `remove`, `current`, `status`, `usage`, `config`, `import`, `export`, `path`, and `version` support `--json`. Every response is one versioned envelope on stdout; warnings go to stderr.
 
 Example (`agy-auth list --json`):
 

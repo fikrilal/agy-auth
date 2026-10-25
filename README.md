@@ -12,6 +12,7 @@
 
 - Switch accounts by row number, alias, email, or account ID.
 - See plan, 5-hour, weekly, group, and reset columns in `list` and `switch`.
+- Automatically rotate to accounts with remaining 5-hour quota with `agy-auth rotate`.
 - Compare Antigravity quota groups with `agy-auth usage` and `usage --all`.
 - Use live views with automatic switching away from exhausted groups.
 - Keep encrypted account snapshots and automatic backups.
@@ -63,6 +64,7 @@ After switching, restart `agy`; a running session keeps the old credential in me
 | `agy-auth add [--alias <alias>] [--target all\|cli\|desktop]` | Save the account signed in to agy or Desktop |
 | `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
 | `agy-auth switch [<query>\|-] [--live] [--target all\|cli\|desktop] [--relaunch]` | Switch interactively, by query, or to the previous account |
+| `agy-auth rotate [--target all\|cli\|desktop] [--relaunch] [--force]` | Automatically switch to an account with remaining quota |
 | `agy-auth remove [<query>...] [--all] [--logout] [--yes] [--live]` | Remove stored accounts |
 | `agy-auth alias set <query> <alias>` | Set an alias |
 | `agy-auth alias clear <query>` | Clear an alias |

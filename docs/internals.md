@@ -135,6 +135,14 @@ If the access token is expired, `internal/usage` refreshes it through `internal/
 
 `agy-auth usage` renders the grouped summary for the live account, the active stored account, or one query-selected snapshot. Each group has a name, description, and `5h`/`weekly` buckets with remaining fraction and reset time; JSON returns the account/email, updated time, and groups. `usage --all` compares the same group rows for every stored account. Ultra/tier-specific groups are displayed automatically when the backend returns them. The per-model `retrieveUserQuota` endpoint is still used by the live auto-switch path, not by the `usage` display.
 
+## Quota rotation
+
+`agy-auth rotate` provides non-interactive, automated switching based on real-time quota data:
+1. Queries quota across all stored accounts using the usage provider.
+2. Evaluates the active account: if healthy and `--force` is not passed, it reports the current account's remaining quota and exits 0.
+3. If the active account is exhausted (or `--force` is given), it selects the healthiest stored candidate with available quota (`quotaAvailable`), prioritizing accounts with earlier reset times and higher remaining quota.
+4. Executes the switch via shared `switchAccount` logic, updating CLI and/or Antigravity Desktop credentials according to `--target` and handling graceful desktop restart when `--relaunch` is specified.
+
 ## Live views
 
 `list --live`, `switch --live`, and `remove --live` use a raw-mode, alternate-screen controller. It repaints at 1 Hz, refreshes the live credential and registry on the configured 5–3600 second cadence in the background, and uses a generation counter so an in-flight refresh cannot overwrite a newer switch/remove action.
