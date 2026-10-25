@@ -1337,6 +1337,55 @@ func TestRenderAccountTableGroupsSameEmail(t *testing.T) {
 	}
 }
 
+func TestRenderAccountTableInteractiveHighlight(t *testing.T) {
+	env := newTestEnv(t, false)
+	app, out, _ := env.app("")
+	app.Width = 100
+	app.OutTTY = true
+	rows := []accountRow{
+		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "first@example.com", Alias: "one"},
+		{Number: 2, ID: "acct_2", Stored: true, Email: "second@example.com", Alias: "two"},
+	}
+
+	app.renderAccountTable(rows, testNow, 0, "\n")
+	output := out.String()
+
+	if !strings.Contains(output, "\x1b[32m>\x1b[0m") {
+		t.Errorf("expected green cursor prefix in output: %q", output)
+	}
+	if !strings.Contains(output, "\x1b[36m") {
+		t.Errorf("expected cyan account styling in output: %q", output)
+	}
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines, got %d: %q", len(lines), output)
+	}
+	if !strings.HasPrefix(lines[0], "   #") {
+		t.Errorf("header should have padding prefix: %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "\x1b[32m>\x1b[0m \x1b[1m01\x1b[0m") {
+		t.Errorf("selected row should have cursor prefix: %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[2], "  02") {
+		t.Errorf("unselected row should have padding prefix: %q", lines[2])
+	}
+
+	out.Reset()
+	app.NoColor = true
+	app.renderAccountTable(rows, testNow, 1, "\n")
+	noColorOutput := out.String()
+	if strings.Contains(noColorOutput, "\x1b[") {
+		t.Errorf("expected no ANSI escape sequences with NoColor: %q", noColorOutput)
+	}
+	noColorLines := strings.Split(strings.TrimRight(noColorOutput, "\n"), "\n")
+	if !strings.HasPrefix(noColorLines[1], "  01") {
+		t.Errorf("unselected row 1 should have padding: %q", noColorLines[1])
+	}
+	if !strings.HasPrefix(noColorLines[2], "> 02") {
+		t.Errorf("selected row 2 should have plain cursor prefix: %q", noColorLines[2])
+	}
+}
+
 func makeLiveRows(count int) []accountRow {
 	rows := make([]accountRow, count)
 	for i := range rows {

@@ -6,6 +6,8 @@
 
 `agy-auth` is an unofficial multi-account switcher for [Google Antigravity CLI](https://antigravity.google/docs/cli/overview) (`agy`). Keep personal, work, and test accounts side by side, switch the live credential, and see plan and quota limits without signing in again.
 
+![Interactive Account Switcher](assets/demo-switch.png)
+
 ## Highlights
 
 - Switch accounts by row number, alias, email, or account ID.
@@ -83,6 +85,8 @@ Global options: `--json` for machine-readable output and `--no-color` to disable
 ## Quota and live views
 
 `agy-auth list` shows the current plan and the 5-hour/weekly quota groups, including reset times. `agy-auth usage --all` shows every group for every stored account:
+
+![Quota Groups Comparison](assets/demo-usage.png)
 
 ```shell
 agy-auth usage --all

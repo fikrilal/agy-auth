@@ -19,7 +19,7 @@ func writeMarkdown(t *testing.T, root, rel, content string) {
 
 func TestCheckLinks(t *testing.T) {
 	root := t.TempDir()
-	writeMarkdown(t, root, "README.md", "[ok](docs/a.md)\n[web](https://example.com)\n[anchor](#x)\n")
+	writeMarkdown(t, root, "README.md", "[ok](docs/a.md)\n[web](https://example.com)\n[anchor](#x)\n[file](file:///path/to/file)\n")
 	writeMarkdown(t, root, "docs/a.md", "# A\n")
 	findings, err := Check(root)
 	if err != nil {

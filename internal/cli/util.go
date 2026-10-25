@@ -39,6 +39,7 @@ func (a *App) color(code, value string) string {
 func (a *App) green(value string) string  { return a.color("\x1b[32m", value) }
 func (a *App) yellow(value string) string { return a.color("\x1b[33m", value) }
 func (a *App) red(value string) string    { return a.color("\x1b[31m", value) }
+func (a *App) cyan(value string) string   { return a.color("\x1b[36m", value) }
 func (a *App) dim(value string) string    { return a.color("\x1b[2m", value) }
 func (a *App) bold(value string) string   { return a.color("\x1b[1m", value) }
 

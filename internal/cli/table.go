@@ -79,22 +79,52 @@ func (a *App) renderTable(out io.Writer, width int, columns []tableColumn, rows 
 }
 
 func (a *App) renderTableRows(out io.Writer, width int, columns []tableColumn, widthRows []tableRow, rows []tableRow, newline string) {
-	widths, selected := fitTableColumns(width, columns, widthRows)
+	hasCursor := false
+	for _, row := range rows {
+		if row.Highlight {
+			hasCursor = true
+			break
+		}
+	}
+	tableWidth := width
+	if hasCursor {
+		tableWidth -= 2
+		if tableWidth < 1 {
+			tableWidth = 1
+		}
+	}
+	widths, selected := fitTableColumns(tableWidth, columns, widthRows)
 	headers := make([]string, len(columns))
 	for i := range columns {
 		headers[i] = columns[i].Header
 	}
-	a.writeTableRow(out, columns, selected, widths, headers, false, newline)
+	headerPrefix := ""
+	if hasCursor {
+		headerPrefix = "  "
+	}
+	a.writeTableRow(out, columns, selected, widths, headers, false, headerPrefix, newline)
 	for _, row := range rows {
 		if row.Spacer {
 			fmt.Fprint(out, newline)
 			continue
 		}
 		if row.Group != "" {
-			fmt.Fprint(out, row.Group+newline)
+			groupPrefix := ""
+			if hasCursor {
+				groupPrefix = "  "
+			}
+			fmt.Fprint(out, groupPrefix+row.Group+newline)
 			continue
 		}
-		a.writeTableRow(out, columns, selected, widths, row.Cells, row.Highlight, newline)
+		rowPrefix := ""
+		if hasCursor {
+			if row.Highlight {
+				rowPrefix = a.green(">") + " "
+			} else {
+				rowPrefix = "  "
+			}
+		}
+		a.writeTableRow(out, columns, selected, widths, row.Cells, row.Highlight, rowPrefix, newline)
 	}
 }
 
@@ -209,8 +239,9 @@ func chosenTotal(chosen []bool, widths []int) int {
 	return total
 }
 
-func (a *App) writeTableRow(out io.Writer, columns []tableColumn, selected []int, widths []int, cells []string, highlight bool, newline string) {
+func (a *App) writeTableRow(out io.Writer, columns []tableColumn, selected []int, widths []int, cells []string, highlight bool, prefix string, newline string) {
 	var builder strings.Builder
+	builder.WriteString(prefix)
 	for position, index := range selected {
 		if position > 0 {
 			builder.WriteString("  ")
@@ -220,6 +251,13 @@ func (a *App) writeTableRow(out io.Writer, columns []tableColumn, selected []int
 			cell = cells[index]
 		}
 		cell = truncatePlain(cell, widths[index])
+		if highlight {
+			if columns[index].Header == "ACCOUNT" {
+				cell = a.bold(a.cyan(cell))
+			} else if strings.TrimSpace(cell) != "" {
+				cell = a.bold(cell)
+			}
+		}
 		padding := widths[index] - visibleWidth(cell)
 		if columns[index].Right {
 			if padding > 0 {
@@ -234,9 +272,6 @@ func (a *App) writeTableRow(out io.Writer, columns []tableColumn, selected []int
 		}
 	}
 	line := strings.TrimRight(builder.String(), " ")
-	if highlight {
-		line = a.bold(line)
-	}
 	fmt.Fprint(out, line+newline)
 }
 

@@ -115,7 +115,8 @@ func markdownFiles(root string) ([]string, error) {
 func skipLink(link string) bool {
 	lower := strings.ToLower(link)
 	return link == "" || strings.HasPrefix(link, "#") || strings.HasPrefix(lower, "http://") ||
-		strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "mailto:")
+		strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "mailto:") ||
+		strings.HasPrefix(lower, "file://")
 }
 
 func Format(finding Finding) string {
