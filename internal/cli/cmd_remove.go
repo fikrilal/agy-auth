@@ -146,6 +146,7 @@ func (a *App) cmdRemove(args []string) int {
 			}
 		} else {
 			loggedOut = true
+			_ = a.Storage.SyncSettings(agy.AuthMethodConsumer, "", "")
 			if !a.JSON {
 				fmt.Fprintln(a.Out, "Removed the live agy credential.")
 			}

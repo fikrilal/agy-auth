@@ -29,6 +29,31 @@ $HOME/.gemini/antigravity-cli/installation_id
 
 That file is one UUID. `agy` creates it once and sends it on telemetry. It is not part of the credential document and it is not a secret. `agy-auth` keeps a copy for each account at `accounts/<id>.installation_id` (`0600`). `add` for `--target=all` or `--target=cli` stores the live id with the account that is signed in. `add --target=desktop` does not change it. `switch`, `login`, and `import --activate` write the selected account's id back. An account with no stored id claims the live id only when that id is not already stored and could be bound to the signed-in account. Otherwise `agy-auth` mints a new UUID. See ADR 0003.
 
+### agy settings.json synchronization
+
+In addition to the credential token, `agy` reads its active Google Cloud project and location from:
+
+```
+$HOME/.gemini/antigravity-cli/settings.json
+```
+
+When running in GCP Pay As You Go mode, `agy` expects:
+
+```json
+{
+  "gcp": {
+    "project": "<project-id>",
+    "location": "global"
+  }
+}
+```
+
+If the `gcp` block is missing, `agy` dynamically falls back to `default-cli-project` for conversations, resulting in Vertex AI model resolution errors (`Could not determine Vertex model ID`).
+
+`agy-auth` keeps `settings.json` synchronized automatically:
+- When activating a GCP PayGo account, it ensures the `gcp` block with `project` and `location` is present (preserving all other user settings in the file).
+- When activating a consumer (personal) account, it removes the `gcp` block so `agy` does not treat consumer credentials as an Enterprise/Platform account.
+
 ## Credential document
 
 Both stores contain the same JSON document:
@@ -48,7 +73,7 @@ Both stores contain the same JSON document:
 
 `id_token` is an OIDC JWT. `agy-auth` decodes (but does not verify) the payload to read `email` and `sub`. The `sub` value is the stable account identity used for deduplication; the refresh token hash is the fallback fingerprint.
 
-`auth_method` is `consumer` for personal accounts. Additional values may exist for enterprise and other flows.
+`auth_method` is `consumer` for personal accounts and `gcp` for Google Cloud project accounts (which also carry `project_id`, `region` (`global`, `us`, or `eu`), and `id_token_email`). When `auth_method` is `gcp` and `project_id` is non-empty, `agy-auth` scopes the derived account ID by `:gcp:<project_id>` so the same Google identity can maintain separate personal and per-project Pay As You Go profiles side by side.
 
 ## Flow
 

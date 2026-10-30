@@ -44,7 +44,7 @@ func (c *Client) FetchGroups(ctx context.Context, token *agy.TokenFile) (Groups,
 	if err != nil {
 		return Groups{}, err
 	}
-	project, _, err := c.loadCodeAssist(ctx, accessToken)
+	project, _, err := c.loadCodeAssist(ctx, accessToken, token)
 	if err != nil {
 		return Groups{}, err
 	}

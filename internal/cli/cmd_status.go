@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
@@ -92,6 +93,12 @@ func (a *App) cmdStatus(args []string) int {
 				"has_refresh": current.HasRefreshToken(),
 				"stored":      matched != nil,
 			}
+			if projectID := strings.TrimSpace(current.ProjectID); projectID != "" {
+				row["project_id"] = projectID
+			}
+			if region := strings.TrimSpace(current.Region); region != "" {
+				row["region"] = region
+			}
 			if hasExpiry {
 				row["expires_at"] = expiryAt.Format(time.RFC3339Nano)
 				row["expires_in"] = humanUntil(expiryAt, now)
@@ -130,6 +137,12 @@ func (a *App) cmdStatus(args []string) int {
 		}
 		fmt.Fprintf(a.Out, "Current:    %s (%s)\n", name, currentSource)
 		fmt.Fprintf(a.Out, "Method:     %s\n", valueOr(current.AuthMethod, "-"))
+		if projectID := strings.TrimSpace(current.ProjectID); projectID != "" {
+			fmt.Fprintf(a.Out, "Project:    %s\n", projectID)
+		}
+		if region := strings.TrimSpace(current.Region); region != "" {
+			fmt.Fprintf(a.Out, "Region:     %s\n", region)
+		}
 		if expiryText != "" {
 			fmt.Fprintf(a.Out, "Expires:    %s\n", expiryText)
 		}
@@ -171,7 +184,10 @@ func mirrorState(keyringRaw, fileRaw []byte, keyringErr, fileErr error) string {
 	fileToken, fileOK := parseStoredToken(fileRaw, fileErr)
 	switch {
 	case keyringOK && fileOK:
-		if keyringToken.Fingerprint() == fileToken.Fingerprint() {
+		if keyringToken.Fingerprint() == fileToken.Fingerprint() &&
+			strings.TrimSpace(keyringToken.AuthMethod) == strings.TrimSpace(fileToken.AuthMethod) &&
+			strings.TrimSpace(keyringToken.ProjectID) == strings.TrimSpace(fileToken.ProjectID) &&
+			strings.TrimSpace(keyringToken.Region) == strings.TrimSpace(fileToken.Region) {
 			return "in sync"
 		}
 		return "keyring and file contain different credentials (run switch again)"
