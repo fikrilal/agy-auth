@@ -195,6 +195,21 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 				if err := report.Error(); err != nil {
 					warnings = append(warnings, err.Error())
 				}
+				effectiveAuth := tf.AuthMethod
+				if effectiveAuth == "" {
+					effectiveAuth = account.AuthMethod
+				}
+				effectiveProject := tf.ProjectID
+				if effectiveProject == "" {
+					effectiveProject = account.ProjectID
+				}
+				effectiveRegion := tf.Region
+				if effectiveRegion == "" {
+					effectiveRegion = account.Region
+				}
+				if err := a.Storage.SyncSettings(effectiveAuth, effectiveProject, effectiveRegion); err != nil {
+					warnings = append(warnings, fmt.Sprintf("settings: %v", err))
+				}
 				if err := a.ensureLiveInstallationID(account.ID, claimLive); err != nil {
 					warnings = append(warnings, fmt.Sprintf("could not set the installation id: %v", err))
 				}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -35,19 +36,21 @@ func TestSnapshotVaultRoundTrip(t *testing.T) {
 	if !bytes.Equal(decoded, raw) {
 		t.Errorf("decoded = %q", decoded)
 	}
-	info, err := os.Stat(keyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("key permissions = %o", info.Mode().Perm())
-	}
-	keyDir, err := os.Stat(filepath.Dir(keyPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if keyDir.Mode().Perm() != 0o700 {
-		t.Errorf("key directory permissions = %o", keyDir.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(keyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("key permissions = %o", info.Mode().Perm())
+		}
+		keyDir, err := os.Stat(filepath.Dir(keyPath))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keyDir.Mode().Perm() != 0o700 {
+			t.Errorf("key directory permissions = %o", keyDir.Mode().Perm())
+		}
 	}
 }
 

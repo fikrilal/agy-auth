@@ -27,6 +27,7 @@ Use the next number. Statuses: `Proposed`, `Accepted`, `Superseded`, `Deprecated
 | [0002](0002-antigravity-desktop-support.md) | Accepted | Support Antigravity Desktop profiles alongside CLI with default dual-target switching and --relaunch |
 | [0003](0003-per-account-installation-id.md) | Accepted | Keep a CLI installation id per account and restore it on switch |
 | [0004](0004-per-account-desktop-updater-id.md) | Accepted | Keep a Desktop updater id per account and restore it on desktop switch |
+| [0005](0005-gcp-paygo-accounts.md) | Accepted | Support Google Cloud Project (Pay As You Go) accounts alongside consumer accounts |
 
 ## Template
 
