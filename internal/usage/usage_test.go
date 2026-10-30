@@ -460,3 +460,51 @@ func TestDefaultProjectAndUserAgent(t *testing.T) {
 		t.Errorf("user agent = %q", got)
 	}
 }
+
+func TestFetchGCPTokenUsesTokenProjectAndPayGoPlan(t *testing.T) {
+	var seenProject any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(request.URL.Path, ":loadCodeAssist"):
+			seenProject = body["cloudaicompanionProject"]
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"cloudaicompanionProject": "sample-gcp-project",
+				"currentTier": map[string]any{
+					"id":   "tier-free",
+					"name": "Free",
+				},
+			})
+		case strings.HasSuffix(request.URL.Path, ":retrieveUserQuotaSummary"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{
+		Endpoint:   server.URL + "/v1internal",
+		ProjectID:  "fallback-project",
+		UserAgent:  "antigravity/test",
+		HTTPClient: server.Client(),
+		Now:        func() time.Time { return usageTestNow },
+	}
+	tok := usageTestToken(usageTestNow.Add(time.Hour))
+	tok.AuthMethod = agy.AuthMethodGCP
+	tok.ProjectID = "sample-gcp-project"
+	tok.Region = agy.RegionGlobal
+
+	snapshot, err := client.Fetch(context.Background(), "acct_gcp", tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seenProject != "sample-gcp-project" {
+		t.Errorf("seen project = %v, want sample-gcp-project", seenProject)
+	}
+	if snapshot.Plan != "PayGo" {
+		t.Errorf("plan = %q, want PayGo", snapshot.Plan)
+	}
+}

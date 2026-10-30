@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
@@ -50,7 +51,10 @@ func (a *App) cmdList(args []string) int {
 	if current != nil {
 		matched, _ = reg.Match(currentRaw)
 		if matched != nil && !*noSync {
-			if matched.Fingerprint != current.Fingerprint() || matched.Email != current.Email() {
+			if matched.Fingerprint != current.Fingerprint() ||
+				matched.Email != current.Email() ||
+				matched.ProjectID != strings.TrimSpace(current.ProjectID) ||
+				matched.Region != strings.TrimSpace(current.Region) {
 				if _, err := a.Store.Upsert(currentRaw, "", false); err != nil {
 					a.warn("could not refresh the stored snapshot of the live account: %v", err)
 				} else if reloaded, err := a.Store.Load(); err != nil {
@@ -75,6 +79,8 @@ func (a *App) cmdList(args []string) int {
 			Email:      account.Email,
 			Alias:      account.Alias,
 			AuthMethod: account.AuthMethod,
+			ProjectID:  account.ProjectID,
+			Region:     account.Region,
 			AddedAt:    timePtr(account.AddedAt),
 			LastUsedAt: timePtr(account.LastUsedAt),
 		}
@@ -95,6 +101,12 @@ func (a *App) cmdList(args []string) int {
 				if row.AuthMethod == "" {
 					row.AuthMethod = tf.AuthMethod
 				}
+				if row.ProjectID == "" {
+					row.ProjectID = strings.TrimSpace(tf.ProjectID)
+				}
+				if row.Region == "" {
+					row.Region = strings.TrimSpace(tf.Region)
+				}
 			}
 		}
 		storedRows = append(storedRows, row)
@@ -112,6 +124,12 @@ func (a *App) cmdList(args []string) int {
 					if copied.AuthMethod == "" {
 						copied.AuthMethod = current.AuthMethod
 					}
+					if copied.ProjectID == "" {
+						copied.ProjectID = strings.TrimSpace(current.ProjectID)
+					}
+					if copied.Region == "" {
+						copied.Region = strings.TrimSpace(current.Region)
+					}
 					currentRow = &copied
 					break
 				}
@@ -122,6 +140,8 @@ func (a *App) cmdList(args []string) int {
 				Stored:     false,
 				Email:      current.Email(),
 				AuthMethod: current.AuthMethod,
+				ProjectID:  strings.TrimSpace(current.ProjectID),
+				Region:     strings.TrimSpace(current.Region),
 				Source:     string(currentSource),
 				token:      current,
 			}
@@ -236,6 +256,9 @@ func (a *App) cmdAdd(args []string) int {
 	fs := a.newFlagSet("add")
 	alias := fs.String("alias", "", "short name used by switch/remove queries")
 	target := fs.String("target", "all", "capture target: all, cli, or desktop")
+	gcp := fs.Bool("gcp", false, "save as a Google Cloud project (Pay As You Go) account")
+	project := fs.String("project", "", "Google Cloud project ID")
+	region := fs.String("region", "", "Google Cloud region (global, us, or eu)")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
@@ -247,6 +270,10 @@ func (a *App) cmdAdd(args []string) int {
 			return a.usageFor("add", "%s", err)
 		}
 	}
+	isGCP := *gcp || strings.TrimSpace(*project) != ""
+	if !isGCP && strings.TrimSpace(*region) != "" {
+		return a.usageFor("add", "--region requires --gcp or --project")
+	}
 
 	read, err := a.Storage.Read()
 	if errors.Is(err, agy.ErrNoCredentials) {
@@ -255,10 +282,34 @@ func (a *App) cmdAdd(args []string) int {
 	if err != nil {
 		return a.failCode("credential_error", "Run `agy-auth status` to check keyring and file-mirror access.", "could not read the agy credential")
 	}
-	if _, err := agy.ParseTokenFile(read.Raw); err != nil {
+	tf, err := agy.ParseTokenFile(read.Raw)
+	if err != nil {
 		return a.failCode("credential_error", "Sign in with agy again, or use `agy-auth login`.", "the live agy credential is invalid")
 	}
-	result, err := a.Store.Upsert(read.Raw, *alias, true)
+	raw := read.Raw
+	if isGCP {
+		effectiveProject := strings.TrimSpace(*project)
+		if effectiveProject == "" {
+			effectiveProject = strings.TrimSpace(tf.ProjectID)
+		}
+		if effectiveProject == "" {
+			return a.usageFor("add", "--gcp requires --project <id> when the live credential has no project_id")
+		}
+		effectiveRegion := strings.TrimSpace(*region)
+		if effectiveRegion == "" {
+			effectiveRegion = strings.TrimSpace(tf.Region)
+		}
+		updatedRaw, err := agy.WithGCPOptions(raw, agy.AuthMethodGCP, effectiveProject, effectiveRegion)
+		if err != nil {
+			return a.usageFor("add", "%s", err)
+		}
+		raw = updatedRaw
+		if report := a.Storage.Write(raw); !report.OK() {
+			return a.failCode("credential_error", "Run `agy-auth status` to check keyring and file-mirror access.", "could not update the live agy credential")
+		}
+		_ = a.Storage.SyncSettings(agy.AuthMethodGCP, effectiveProject, effectiveRegion)
+	}
+	result, err := a.Store.Upsert(raw, *alias, true)
 	if err != nil {
 		return a.registryFailure(err, "could not save the live agy credential")
 	}
@@ -333,6 +384,8 @@ func (a *App) cmdCurrent(args []string) int {
 		Stored:     true,
 		Email:      tf.Email(),
 		AuthMethod: tf.AuthMethod,
+		ProjectID:  strings.TrimSpace(tf.ProjectID),
+		Region:     strings.TrimSpace(tf.Region),
 		Source:     string(read.Source),
 	}
 	if expiry, ok := tf.ExpiryTime(); ok {
@@ -351,11 +404,17 @@ func (a *App) cmdCurrent(args []string) int {
 		name = "(unknown account)"
 	}
 	fmt.Fprintf(a.Out, "%s\n", name)
-	fmt.Fprintf(a.Out, "  source: %s\n", read.Source)
+	fmt.Fprintf(a.Out, "  source:  %s\n", read.Source)
 	if row.ExpiresAt != nil {
-		fmt.Fprintf(a.Out, "  token:  %s\n", humanUntil(*row.ExpiresAt, now))
+		fmt.Fprintf(a.Out, "  token:   %s\n", humanUntil(*row.ExpiresAt, now))
 	}
-	fmt.Fprintf(a.Out, "  method: %s\n", valueOr(row.AuthMethod, "-"))
+	fmt.Fprintf(a.Out, "  method:  %s\n", valueOr(row.AuthMethod, "-"))
+	if row.ProjectID != "" {
+		fmt.Fprintf(a.Out, "  project: %s\n", row.ProjectID)
+	}
+	if row.Region != "" {
+		fmt.Fprintf(a.Out, "  region:  %s\n", row.Region)
+	}
 	return 0
 }
 

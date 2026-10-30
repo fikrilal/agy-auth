@@ -325,6 +325,8 @@ func (a *App) loadLiveRows(mode liveMode, withUsage bool) ([]accountRow, string,
 				Stored:     false,
 				Email:      tf.Email(),
 				AuthMethod: tf.AuthMethod,
+				ProjectID:  strings.TrimSpace(tf.ProjectID),
+				Region:     strings.TrimSpace(tf.Region),
 				Source:     source,
 				token:      tf,
 			}

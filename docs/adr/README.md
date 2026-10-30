@@ -25,6 +25,7 @@ Use the next number. Statuses: `Proposed`, `Accepted`, `Superseded`, `Deprecated
 |---|---|---|
 | [0001](0001-repository-harness.md) | Accepted | Adopt a repository harness with mechanical guardrails, without loop engineering |
 | [0002](0002-antigravity-desktop-support.md) | Accepted | Support Antigravity Desktop profiles alongside CLI with default dual-target switching and --relaunch |
+| [0003](0003-gcp-paygo-accounts.md) | Accepted | Support Google Cloud Project (Pay As You Go) accounts alongside consumer accounts |
 
 ## Template
 

@@ -52,6 +52,8 @@ type accountRow struct {
 	Email      string          `json:"email,omitempty"`
 	Alias      string          `json:"alias,omitempty"`
 	AuthMethod string          `json:"auth_method,omitempty"`
+	ProjectID  string          `json:"project_id,omitempty"`
+	Region     string          `json:"region,omitempty"`
 	ExpiresAt  *time.Time      `json:"expires_at,omitempty"`
 	Expired    bool            `json:"expired"`
 	AddedAt    *time.Time      `json:"added_at,omitempty"`
@@ -67,29 +69,35 @@ type accountRow struct {
 }
 
 func (r accountRow) displayName() string {
+	base := "(unknown)"
 	switch {
 	case r.Alias != "" && r.Email != "":
-		return r.Alias + " (" + r.Email + ")"
+		base = r.Alias + " (" + r.Email + ")"
 	case r.Email != "":
-		return r.Email
+		base = r.Email
 	case r.Alias != "":
-		return r.Alias
+		base = r.Alias
 	case r.ID != "":
-		return shortID(r.ID)
-	default:
-		return "(unknown)"
+		base = shortID(r.ID)
 	}
+	if r.ProjectID != "" {
+		return base + " [" + r.ProjectID + "]"
+	}
+	return base
 }
 
 func (r accountRow) groupLabel() string {
+	base := "(unknown)"
 	switch {
 	case r.Alias != "":
-		return r.Alias
+		base = r.Alias
 	case r.ID != "":
-		return shortID(r.ID)
-	default:
-		return "(unknown)"
+		base = shortID(r.ID)
 	}
+	if r.ProjectID != "" {
+		return base + " [" + r.ProjectID + "]"
+	}
+	return base
 }
 
 type displayAccountRow struct {

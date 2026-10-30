@@ -81,6 +81,8 @@ func (a *App) pickerRows(accounts []registry.Account, activeID string, numbers m
 			Email:      account.Email,
 			Alias:      account.Alias,
 			AuthMethod: account.AuthMethod,
+			ProjectID:  account.ProjectID,
+			Region:     account.Region,
 			LastUsedAt: timePtr(account.LastUsedAt),
 		}
 		if raw, err := a.Store.LoadToken(account.ID); err == nil {
@@ -96,6 +98,12 @@ func (a *App) pickerRows(accounts []registry.Account, activeID string, numbers m
 				}
 				if row.AuthMethod == "" {
 					row.AuthMethod = tf.AuthMethod
+				}
+				if row.ProjectID == "" {
+					row.ProjectID = strings.TrimSpace(tf.ProjectID)
+				}
+				if row.Region == "" {
+					row.Region = strings.TrimSpace(tf.Region)
 				}
 			}
 		}

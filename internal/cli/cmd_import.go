@@ -16,13 +16,20 @@ func (a *App) cmdImport(args []string) int {
 	fs := a.newFlagSet("import")
 	alias := fs.String("alias", "", "alias for a single imported file")
 	activate := fs.Bool("activate", false, "activate a single imported file")
+	gcp := fs.Bool("gcp", false, "mark a single imported file as a Google Cloud project account")
+	project := fs.String("project", "", "Google Cloud project ID for a single imported file")
+	region := fs.String("region", "", "Google Cloud region (global, us, or eu) for a single imported file")
 	purge := fs.Bool("purge", false, "rebuild the registry from stored snapshots")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
+	isGCP := *gcp || strings.TrimSpace(*project) != ""
+	if !isGCP && strings.TrimSpace(*region) != "" {
+		return a.usageFor("import", "--region requires --gcp or --project")
+	}
 	if *purge {
-		if *alias != "" || *activate {
-			return a.usageFor("import", "--purge cannot be combined with --alias or --activate")
+		if *alias != "" || *activate || isGCP || strings.TrimSpace(*region) != "" {
+			return a.usageFor("import", "--purge cannot be combined with --alias, --activate, --gcp, --project, or --region")
 		}
 		if fs.NArg() != 0 {
 			return a.usageFor("import", "import --purge does not take a path")
@@ -46,8 +53,8 @@ func (a *App) cmdImport(args []string) int {
 	var files []string
 	fromDirectory := info.IsDir()
 	if fromDirectory {
-		if *alias != "" || *activate {
-			return a.usageFor("import", "--alias and --activate only work when importing a single file")
+		if *alias != "" || *activate || isGCP || strings.TrimSpace(*region) != "" {
+			return a.usageFor("import", "--alias, --activate, --gcp, --project, and --region only work when importing a single file")
 		}
 		entries, err := os.ReadDir(path)
 		if err != nil {
@@ -88,11 +95,30 @@ func (a *App) cmdImport(args []string) int {
 			report.Files = append(report.Files, event)
 			continue
 		}
-		if _, err := agy.ParseTokenFile(plain); err != nil {
+		tf, err := agy.ParseTokenFile(plain)
+		if err != nil {
 			event.Outcome = outcomeSkipped
 			event.Reason = "invalid credential"
 			report.Files = append(report.Files, event)
 			continue
+		}
+		if !fromDirectory && isGCP {
+			effectiveProject := strings.TrimSpace(*project)
+			if effectiveProject == "" {
+				effectiveProject = strings.TrimSpace(tf.ProjectID)
+			}
+			if effectiveProject == "" {
+				return a.usageFor("import", "--gcp requires --project <id> when the credential file has no project_id")
+			}
+			effectiveRegion := strings.TrimSpace(*region)
+			if effectiveRegion == "" {
+				effectiveRegion = strings.TrimSpace(tf.Region)
+			}
+			updatedPlain, err := agy.WithGCPOptions(plain, agy.AuthMethodGCP, effectiveProject, effectiveRegion)
+			if err != nil {
+				return a.usageFor("import", "%s", err)
+			}
+			plain = updatedPlain
 		}
 
 		aliasValue := ""
@@ -137,6 +163,9 @@ func (a *App) cmdImport(args []string) int {
 				Message: "imported the account but could not write the agy credential",
 				Hint:    fmt.Sprintf("Run `agy-auth switch %s` after fixing credential storage.", report.Imported[0].ID),
 			})
+		}
+		if tf, err := agy.ParseTokenFile(singleRaw); err == nil {
+			_ = a.Storage.SyncSettings(tf.AuthMethod, tf.ProjectID, tf.Region)
 		}
 		report.Activated = true
 	}
@@ -224,7 +253,7 @@ func (a *App) purgeRegistry() int {
 		if oldAccount, ok := byID[account.ID]; ok {
 			carryAccount(&account, oldAccount)
 		} else if account.Subject != "" {
-			if oldAccount, ok := bySubject[account.Subject]; ok {
+			if oldAccount, ok := bySubject[account.Subject]; ok && oldAccount.AuthMethod == account.AuthMethod && oldAccount.ProjectID == account.ProjectID {
 				carryAccount(&account, oldAccount)
 			}
 		}

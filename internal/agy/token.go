@@ -11,13 +11,29 @@ import (
 	"time"
 )
 
+const (
+	AuthMethodConsumer = "consumer"
+	AuthMethodGCP      = "gcp"
+	RegionGlobal       = "global"
+	RegionUS           = "us"
+	RegionEU           = "eu"
+)
+
 // TokenFile mirrors the JSON document Antigravity CLI stores in the OS keyring
 // (service "gemini", account "antigravity") and in the file fallback at
 // ~/.gemini/antigravity-cli/antigravity-oauth-token.
 type TokenFile struct {
-	Token      Token  `json:"token"`
-	AuthMethod string `json:"auth_method"`
-	IDToken    string `json:"id_token"`
+	Token            Token  `json:"token"`
+	AuthMethod       string `json:"auth_method"`
+	IDToken          string `json:"id_token,omitempty"`
+	IDTokenEmail     string `json:"id_token_email,omitempty"`
+	WIFProvider      string `json:"wif_provider,omitempty"`
+	SavedWIFProvider string `json:"saved_wif_provider,omitempty"`
+	ProjectID        string `json:"project_id,omitempty"`
+	Region           string `json:"region,omitempty"`
+	UserTier         string `json:"user_tier,omitempty"`
+	TierDisplayName  string `json:"tier_display_name,omitempty"`
+	WriterID         string `json:"writer_id,omitempty"`
 }
 
 type Token struct {
@@ -55,12 +71,79 @@ func ParseTokenFile(raw []byte) (*TokenFile, error) {
 	return &tf, nil
 }
 
-func (t *TokenFile) Email() string {
-	claims, err := t.Claims()
-	if err != nil {
-		return ""
+func ValidateProjectID(projectID string) (string, error) {
+	trimmed := strings.TrimSpace(projectID)
+	if trimmed == "" {
+		return "", errors.New("project ID cannot be empty")
 	}
-	return claims.Email
+	if strings.ContainsAny(trimmed, " \t\r\n/") {
+		return "", errors.New("project ID cannot contain whitespace")
+	}
+	return trimmed, nil
+}
+
+func ValidateRegion(region string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(region))
+	if trimmed == "" {
+		return RegionGlobal, nil
+	}
+	switch trimmed {
+	case RegionGlobal, RegionUS, RegionEU:
+		return trimmed, nil
+	default:
+		return "", fmt.Errorf("invalid region %q; supported regions: global, us, eu", region)
+	}
+}
+
+// WithGCPOptions returns a copy of raw with auth_method, project_id, and region
+// set while preserving any unknown top-level fields.
+func WithGCPOptions(raw []byte, authMethod, projectID, region string) ([]byte, error) {
+	tf, err := ParseTokenFile(raw)
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("invalid credential JSON: %w", err)
+	}
+	if strings.TrimSpace(authMethod) != "" {
+		doc["auth_method"] = strings.TrimSpace(authMethod)
+		if strings.TrimSpace(authMethod) == AuthMethodGCP {
+			delete(doc, "user_tier")
+			delete(doc, "tier_display_name")
+		}
+	}
+	if strings.TrimSpace(projectID) != "" {
+		validatedProject, err := ValidateProjectID(projectID)
+		if err != nil {
+			return nil, err
+		}
+		doc["project_id"] = validatedProject
+	}
+	if strings.TrimSpace(region) != "" {
+		validatedRegion, err := ValidateRegion(region)
+		if err != nil {
+			return nil, err
+		}
+		doc["region"] = validatedRegion
+	}
+	if email := tf.Email(); email != "" {
+		if existing, ok := doc["id_token_email"].(string); !ok || strings.TrimSpace(existing) == "" {
+			doc["id_token_email"] = email
+		}
+	}
+	encoded, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode credential JSON: %w", err)
+	}
+	return append(encoded, '\n'), nil
+}
+
+func (t *TokenFile) Email() string {
+	if claims, err := t.Claims(); err == nil && strings.TrimSpace(claims.Email) != "" {
+		return strings.TrimSpace(claims.Email)
+	}
+	return strings.TrimSpace(t.IDTokenEmail)
 }
 
 func (t *TokenFile) Subject() string {

@@ -44,7 +44,7 @@ agy-auth login --alias personal
 # agy-auth add --alias personal
 
 # Add a second account.
-agy-auth login --alias work
+agy-auth login --gcp --project my-gcp-project --region global --alias work
 
 # Inspect and switch.
 agy-auth list
@@ -61,8 +61,8 @@ After switching, restart `agy`; a running session keeps the old credential in me
 | Command | Description |
 |---------|-------------|
 | `agy-auth list [--active] [--no-sync] [--no-usage] [--live]` | List accounts, plan, and quota |
-| `agy-auth add [--alias <alias>] [--target all\|cli\|desktop]` | Save the account signed in to agy or Desktop |
-| `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
+| `agy-auth add [--alias <alias>] [--gcp --project <id> [--region <region>]] [--target all\|cli\|desktop]` | Save the account signed in to agy or Desktop |
+| `agy-auth login [--alias <alias>] [--gcp --project <id> [--region <region>]] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
 | `agy-auth switch [<query>\|-] [--live] [--target all\|cli\|desktop] [--relaunch]` | Switch interactively, by query, or to the previous account |
 | `agy-auth rotate [--target all\|cli\|desktop] [--relaunch] [--force]` | Automatically switch to an account with remaining quota |
 | `agy-auth remove [<query>...] [--all] [--logout] [--yes] [--live]` | Remove stored accounts |
@@ -73,14 +73,14 @@ After switching, restart `agy`; a running session keeps the old credential in me
 | `agy-auth status` | Show storage paths and credential health |
 | `agy-auth usage [<query>] [--all]` | Show or compare quota groups |
 | `agy-auth config live [--interval <seconds>]` | Show or set the live refresh interval |
-| `agy-auth import <file-or-dir> [--alias <alias>] [--activate]` | Import credential JSON |
+| `agy-auth import <file-or-dir> [--alias <alias>] [--gcp --project <id> [--region <region>]] [--activate]` | Import credential JSON |
 | `agy-auth import --purge` | Rebuild the registry from stored snapshots |
 | `agy-auth export [--dir <directory>] [<query>...]` | Export credentials |
 | `agy-auth path` | Print storage locations |
 | `agy-auth clean [--dry-run]` | Prune old backups and orphan snapshots |
 | `agy-auth version [--check]` | Print the version; `--check` queries the latest release |
 
-Queries match row number, account ID, alias, email, or account ID prefix.
+Queries match row number, account ID, alias, email, GCP project ID, or account ID prefix.
 
 Global options: `--json` for machine-readable output and `--no-color` to disable colors. See the [user guide](docs/user-guide.md#json-output) for JSON details.
 

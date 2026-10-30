@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,7 +19,10 @@ import (
 func (a *App) cmdLogin(args []string) int {
 	fs := a.newFlagSet("login")
 	alias := fs.String("alias", "", "short name used by switch/remove queries")
-	authMethod := fs.String("auth-method", "consumer", "stored auth_method value")
+	authMethod := fs.String("auth-method", agy.AuthMethodConsumer, "stored auth_method value")
+	gcp := fs.Bool("gcp", false, "sign in with a Google Cloud project (Pay As You Go)")
+	project := fs.String("project", "", "Google Cloud project ID for --gcp")
+	region := fs.String("region", "", "Google Cloud region for --gcp (global, us, or eu)")
 	noBrowser := fs.Bool("no-browser", false, "only print the authorization URL")
 	viaAgy := fs.Bool("via-agy", false, "let agy perform the sign-in flow")
 	agyPath := fs.String("agy", "", "agy executable for OAuth client discovery and --via-agy")
@@ -33,16 +37,65 @@ func (a *App) cmdLogin(args []string) int {
 			return a.usageFor("login", "%s", err)
 		}
 	}
+
+	effectiveAuthMethod := strings.TrimSpace(*authMethod)
+	if effectiveAuthMethod == "" {
+		effectiveAuthMethod = agy.AuthMethodConsumer
+	}
+	isGCP := *gcp || strings.TrimSpace(*project) != "" || strings.EqualFold(effectiveAuthMethod, agy.AuthMethodGCP)
+	if !isGCP && strings.TrimSpace(*region) != "" {
+		return a.usageFor("login", "--region requires --gcp or --project")
+	}
+
+	var projectID, regionValue string
+	if isGCP {
+		effectiveAuthMethod = agy.AuthMethodGCP
+		rawProject := strings.TrimSpace(*project)
+		rawRegion := strings.TrimSpace(*region)
+		if !*viaAgy && rawProject == "" {
+			if a.TTY && !a.JSON {
+				inputProject, err := a.readLine("Google Cloud project ID: ")
+				if err != nil {
+					return a.failCode("input_error", "Pass --project <id> or try again.", "could not read the Google Cloud project ID")
+				}
+				rawProject = strings.TrimSpace(inputProject)
+				if rawRegion == "" {
+					inputRegion, err := a.readLine("Google Cloud region [global/us/eu] (default: global): ")
+					if err != nil {
+						return a.failCode("input_error", "Pass --region <region> or try again.", "could not read the Google Cloud region")
+					}
+					rawRegion = strings.TrimSpace(inputRegion)
+				}
+			} else {
+				return a.usageFor("login", "--gcp requires --project <id>")
+			}
+		}
+		if rawProject != "" {
+			validatedProject, err := agy.ValidateProjectID(rawProject)
+			if err != nil {
+				return a.usageFor("login", "%s", err)
+			}
+			projectID = validatedProject
+		}
+		if rawRegion != "" || projectID != "" {
+			validatedRegion, err := agy.ValidateRegion(rawRegion)
+			if err != nil {
+				return a.usageFor("login", "%s", err)
+			}
+			regionValue = validatedRegion
+		}
+	}
+
 	if *viaAgy {
-		return a.loginViaAgy(*alias, *agyPath)
+		return a.loginViaAgy(*alias, *agyPath, isGCP, projectID, regionValue)
 	}
 	if err := oauth.EnsureClient(*agyPath); err != nil {
 		return a.failCode("oauth_error", "Pass --agy <path>, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET.", "could not discover the Antigravity OAuth client")
 	}
-	return a.loginOAuth(*alias, *authMethod, *noBrowser)
+	return a.loginOAuth(*alias, effectiveAuthMethod, projectID, regionValue, *noBrowser)
 }
 
-func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
+func (a *App) loginOAuth(alias, authMethod, projectID, region string, noBrowser bool) int {
 	state, err := oauth.NewState()
 	if err != nil {
 		return a.failCode("oauth_error", "Retry the login flow.", "could not start the OAuth flow")
@@ -51,7 +104,7 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 	if err != nil {
 		return a.failCode("oauth_error", "Retry the login flow.", "could not start the OAuth flow")
 	}
-	authURL := oauth.AuthURL(state, verifier)
+	authURL := oauth.AuthURLForMethod(state, verifier, authMethod)
 
 	prompt := a.promptWriter()
 	fmt.Fprintln(prompt, "Open this URL in a browser and approve access:")
@@ -75,7 +128,7 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	response, err := oauth.Exchange(ctx, code, verifier)
+	response, err := oauth.ExchangeForMethod(ctx, code, verifier, authMethod)
 	if err != nil {
 		return a.failCode("oauth_error", "Check your network connection and try again.", "could not exchange the authorization code")
 	}
@@ -84,6 +137,8 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 	}
 
 	tokenFile := oauth.TokenFromResponse(response, authMethod, a.now())
+	tokenFile.ProjectID = projectID
+	tokenFile.Region = region
 	var warnings []string
 	if tokenFile.Token.RefreshToken == "" {
 		if old := a.existingRefreshToken(tokenFile); old != "" {
@@ -114,6 +169,9 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 			Hint:    fmt.Sprintf("Run `agy-auth switch %s` after fixing credential storage.", result.Account.ID),
 		})
 	}
+	if err := a.Storage.SyncSettings(authMethod, projectID, region); err != nil {
+		warnings = append(warnings, fmt.Sprintf("settings: %v", err))
+	}
 	if err := report.Error(); err != nil {
 		warnings = append(warnings, err.Error())
 	}
@@ -123,7 +181,7 @@ func (a *App) loginOAuth(alias, authMethod string, noBrowser bool) int {
 	return a.finishLogin(result, report, warnings)
 }
 
-func (a *App) loginViaAgy(alias, agyPath string) int {
+func (a *App) loginViaAgy(alias, agyPath string, isGCP bool, projectID, region string) int {
 	if !a.TTY {
 		return a.usageFor("login", "--via-agy requires an interactive terminal; use the default OAuth flow instead")
 	}
@@ -171,9 +229,57 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 	if err != nil {
 		return a.failCode("credential_error", "Your previous active account was not changed. Check temporary directory permissions.", "could not read the isolated agy credential")
 	}
+
+	isolatedSettingsPath := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+	if isolatedData, sErr := os.ReadFile(isolatedSettingsPath); sErr == nil {
+		var s struct {
+			GCP struct {
+				Project  string `json:"project"`
+				Location string `json:"location"`
+			} `json:"gcp"`
+		}
+		if json.Unmarshal(isolatedData, &s) == nil && s.GCP.Project != "" {
+			isGCP = true
+			if projectID == "" {
+				projectID = s.GCP.Project
+			}
+			if region == "" {
+				region = s.GCP.Location
+			}
+		}
+	}
+
 	tokenFile, err := agy.ParseTokenFile(raw)
 	if err != nil {
 		return a.failCode("credential_error", "Your previous active account was not changed. Sign in again with agy.", "the isolated agy credential is invalid")
+	}
+	if strings.EqualFold(tokenFile.AuthMethod, agy.AuthMethodGCP) || tokenFile.ProjectID != "" {
+		isGCP = true
+		if projectID == "" {
+			projectID = tokenFile.ProjectID
+		}
+		if region == "" {
+			region = tokenFile.Region
+		}
+	}
+	if isGCP || projectID != "" || region != "" {
+		effectiveProject := projectID
+		if effectiveProject == "" {
+			effectiveProject = tokenFile.ProjectID
+		}
+		effectiveRegion := region
+		if effectiveRegion == "" {
+			effectiveRegion = tokenFile.Region
+		}
+		if effectiveRegion == "" && effectiveProject != "" {
+			effectiveRegion = agy.RegionGlobal
+		}
+		updatedRaw, err := agy.WithGCPOptions(raw, agy.AuthMethodGCP, effectiveProject, effectiveRegion)
+		if err != nil {
+			return a.failCode("credential_error", "Check the --project and --region flags.", "%s", err)
+		}
+		raw = updatedRaw
+		tokenFile, _ = agy.ParseTokenFile(raw)
 	}
 
 	result, err := a.Store.Upsert(raw, alias, true)
@@ -192,6 +298,13 @@ func (a *App) loginViaAgy(alias, agyPath string) int {
 		})
 	}
 	var warnings []string
+	effectiveAuth := tokenFile.AuthMethod
+	if isGCP || projectID != "" {
+		effectiveAuth = agy.AuthMethodGCP
+	}
+	if err := a.Storage.SyncSettings(effectiveAuth, tokenFile.ProjectID, tokenFile.Region); err != nil {
+		warnings = append(warnings, fmt.Sprintf("settings: %v", err))
+	}
 	if err := report.Error(); err != nil {
 		warnings = append(warnings, err.Error())
 	}

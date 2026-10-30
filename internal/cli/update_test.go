@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -92,8 +93,10 @@ func TestCheckForUpdateCaches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("cache permissions = %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("cache permissions = %o", info.Mode().Perm())
+		}
 	}
 }
 
@@ -123,6 +126,9 @@ func TestMaybeNotifyUpdate(t *testing.T) {
 }
 
 func TestUpdatePromptDeclineDoesNotNag(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("interactive update prompt is disabled on Windows standalone")
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"version":"` + newerTestVersion() + `"}`))
 	}))
@@ -190,8 +196,10 @@ func TestInstallReleaseBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o755 {
-		t.Errorf("target mode = %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o755 {
+			t.Errorf("target mode = %o", info.Mode().Perm())
+		}
 	}
 }
 
