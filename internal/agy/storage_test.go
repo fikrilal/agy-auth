@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -36,12 +37,14 @@ func TestFileStorageRoundTrip(t *testing.T) {
 		t.Error("round trip content mismatch")
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("permissions = %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("permissions = %o", info.Mode().Perm())
+		}
 	}
 
 	if err := storage.Delete(); err != nil {

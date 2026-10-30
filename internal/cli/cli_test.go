@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -167,8 +168,10 @@ func TestCLILifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("token permissions = %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("token permissions = %o", info.Mode().Perm())
+		}
 	}
 
 	app, _, errOut = env.app("")
@@ -1966,6 +1969,20 @@ func TestLoginReusesStoredRefreshToken(t *testing.T) {
 
 func fakeAgyLogin(t *testing.T, token []byte, exitCode int) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(t.TempDir(), "agy.cmd")
+		script := "@echo off\r\n"
+		if token != nil {
+			b64 := base64.StdEncoding.EncodeToString(token)
+			script += `if not exist "%USERPROFILE%\.gemini\antigravity-cli" mkdir "%USERPROFILE%\.gemini\antigravity-cli"` + "\r\n"
+			script += fmt.Sprintf(`powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:USERPROFILE + '\.gemini\antigravity-cli\antigravity-oauth-token', [System.Convert]::FromBase64String('%s'))"`+"\r\n", b64)
+		}
+		script += fmt.Sprintf("exit /b %d\r\n", exitCode)
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
 	path := filepath.Join(t.TempDir(), "agy")
 	script := "#!/bin/sh\n"
 	if token != nil {
@@ -2637,7 +2654,8 @@ func TestUsageCommand(t *testing.T) {
 	if code := app.Run([]string{"usage"}); code != 0 {
 		t.Fatalf("usage exit = %d, stderr = %s", code, errOut)
 	}
-	for _, want := range []string{"Account:", "GROUP", "Gemini Models", "Claude and GPT models", "58%", "100%", "2026-10-24"} {
+	resetTime, _ := time.Parse(time.RFC3339, "2026-10-24T02:39:46Z")
+	for _, want := range []string{"Account:", "GROUP", "Gemini Models", "Claude and GPT models", "58%", "100%", resetTime.Local().Format("2006-01-02")} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage output missing %q: %q", want, out.String())
 		}
@@ -3205,5 +3223,132 @@ func TestRotateDesktopTargetAndRelaunch(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Relaunched Antigravity Desktop") {
 		t.Errorf("output missing relaunch message: %q", out.String())
+	}
+}
+
+func TestGCPPayGoLoginAddSwitchAndStatus(t *testing.T) {
+	env := newTestEnv(t, true)
+
+	// 1. Save initial personal (consumer) account.
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add personal exit = %d, stderr = %s", code, errOut)
+	}
+
+	// 2. Tag and add the same Google identity as a GCP PayGo account for sample-gcp-project.
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"add", "--gcp", "--project", "sample-gcp-project", "--region", "global", "--alias", "work"}); code != 0 {
+		t.Fatalf("add gcp exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "Added account work") {
+		t.Errorf("add gcp output = %q", out.String())
+	}
+
+	// Verify both accounts coexist in the registry and can be switched between.
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"list", "--no-usage", "--json"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	envl := decodeTestEnvelope(t, out)
+	var listPayload struct {
+		Accounts []accountRow `json:"accounts"`
+		Current  *accountRow  `json:"current"`
+	}
+	if err := json.Unmarshal(envl.Data, &listPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(listPayload.Accounts) != 2 {
+		t.Fatalf("accounts = %d, want 2: %+v", len(listPayload.Accounts), listPayload.Accounts)
+	}
+	if listPayload.Current == nil || listPayload.Current.AuthMethod != "gcp" || listPayload.Current.ProjectID != "sample-gcp-project" || listPayload.Current.Region != "global" {
+		t.Errorf("current = %+v", listPayload.Current)
+	}
+
+	settingsPath := filepath.Join(filepath.Dir(env.tokenPath), "settings.json")
+	settingsRaw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("settings.json should exist after gcp add: %v", err)
+	}
+	var settingsDoc map[string]any
+	if err := json.Unmarshal(settingsRaw, &settingsDoc); err != nil {
+		t.Fatal(err)
+	}
+	gcpSettings, ok := settingsDoc["gcp"].(map[string]any)
+	if !ok || gcpSettings["project"] != "sample-gcp-project" || gcpSettings["location"] != "global" {
+		t.Errorf("settings.json gcp block = %+v", settingsDoc["gcp"])
+	}
+
+	// Switch to personal and verify live credential is consumer.
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"switch", "personal"}); code != 0 {
+		t.Fatalf("switch personal exit = %d, stderr = %s", code, errOut)
+	}
+	liveRaw, err := os.ReadFile(env.tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveToken, err := agy.ParseTokenFile(liveRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if liveToken.AuthMethod != "consumer" || liveToken.ProjectID != "" {
+		t.Errorf("live token after switching to personal = %+v", liveToken)
+	}
+	settingsRaw, err = os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsDoc = nil
+	if err := json.Unmarshal(settingsRaw, &settingsDoc); err != nil {
+		t.Fatal(err)
+	}
+	if _, hasGCP := settingsDoc["gcp"]; hasGCP {
+		t.Errorf("settings.json should not have gcp block after switching to personal: %+v", settingsDoc)
+	}
+
+	// Switch back by project ID and verify live credential has GCP fields.
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"switch", "sample-gcp-project"}); code != 0 {
+		t.Fatalf("switch by project ID exit = %d, stderr = %s", code, errOut)
+	}
+	liveRaw, err = os.ReadFile(env.tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveToken, err = agy.ParseTokenFile(liveRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if liveToken.AuthMethod != "gcp" || liveToken.ProjectID != "sample-gcp-project" || liveToken.Region != "global" {
+		t.Errorf("live token after switching to gcp = %+v", liveToken)
+	}
+	settingsRaw, err = os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsDoc = nil
+	if err := json.Unmarshal(settingsRaw, &settingsDoc); err != nil {
+		t.Fatal(err)
+	}
+	gcpSettings, ok = settingsDoc["gcp"].(map[string]any)
+	if !ok || gcpSettings["project"] != "sample-gcp-project" || gcpSettings["location"] != "global" {
+		t.Errorf("settings.json gcp block after switching back = %+v", settingsDoc["gcp"])
+	}
+
+	// Verify current and status include project and region.
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"current"}); code != 0 {
+		t.Fatalf("current exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "project: sample-gcp-project") || !strings.Contains(out.String(), "region:  global") {
+		t.Errorf("current output = %q", out.String())
+	}
+
+	app, out, errOut = env.app("")
+	if code := app.Run([]string{"status"}); code != 0 {
+		t.Fatalf("status exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out.String(), "Project:    sample-gcp-project") || !strings.Contains(out.String(), "Region:     global") {
+		t.Errorf("status output = %q", out.String())
 	}
 }

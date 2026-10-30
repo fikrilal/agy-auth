@@ -133,3 +133,50 @@ func TestPhoneLikeTokensWithoutIDToken(t *testing.T) {
 		t.Error("expected fingerprint from refresh token")
 	}
 }
+
+func TestValidateProjectAndRegion(t *testing.T) {
+	if got, err := ValidateProjectID("sample-gcp-project"); err != nil || got != "sample-gcp-project" {
+		t.Fatalf("ValidateProjectID valid = %q, %v", got, err)
+	}
+	for _, invalid := range []string{"", "   ", "bad project", "bad/project"} {
+		if _, err := ValidateProjectID(invalid); err == nil {
+			t.Errorf("expected invalid project ID %q to fail", invalid)
+		}
+	}
+	if got, err := ValidateRegion(""); err != nil || got != RegionGlobal {
+		t.Fatalf("ValidateRegion empty = %q, %v", got, err)
+	}
+	for _, valid := range []string{"global", "US", " eu "} {
+		if _, err := ValidateRegion(valid); err != nil {
+			t.Errorf("ValidateRegion(%q) = %v", valid, err)
+		}
+	}
+	if _, err := ValidateRegion("asia"); err == nil {
+		t.Error("expected invalid region to fail")
+	}
+}
+
+func TestWithGCPOptionsPreservesUnknownFields(t *testing.T) {
+	raw := []byte(`{"token":{"access_token":"a","refresh_token":"r"},"auth_method":"consumer","custom_field":"keep","user_tier":"g1-pro-tier"}`)
+	updated, err := WithGCPOptions(raw, AuthMethodGCP, "sample-gcp-project", "us")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tf, err := ParseTokenFile(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tf.AuthMethod != AuthMethodGCP || tf.ProjectID != "sample-gcp-project" || tf.Region != RegionUS {
+		t.Fatalf("unexpected GCP token fields: %+v", tf)
+	}
+	if tf.UserTier != "" {
+		t.Errorf("expected user_tier to be cleared for PayGo, got %q", tf.UserTier)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(updated, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["custom_field"] != "keep" {
+		t.Errorf("unknown field lost: %+v", doc)
+	}
+}

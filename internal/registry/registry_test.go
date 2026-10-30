@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -466,8 +467,10 @@ func TestRemoveAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("account permissions = %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("account permissions = %o", info.Mode().Perm())
+		}
 	}
 	reg, _ := store.Load()
 	if !reg.Remove(result.Account.ID) {
@@ -533,8 +536,10 @@ func TestSaveTokenEncryptsAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("snapshot permissions = %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("snapshot permissions = %o", info.Mode().Perm())
+		}
 	}
 	if _, err := os.Stat(store.Vault.KeyPath); err != nil {
 		t.Errorf("key file missing: %v", err)
@@ -682,5 +687,84 @@ func TestDesktopProfilePathAndClean(t *testing.T) {
 	}
 	if store.HasDesktopProfile(orphanID) {
 		t.Fatal("orphan desktop profile still exists after clean")
+	}
+}
+
+func testGCPToken(t *testing.T, email, subject, refresh, projectID, region string, expiry time.Time) []byte {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"email": email, "sub": subject})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idToken := "e30." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+	document := map[string]any{
+		"token": map[string]any{
+			"access_token":  "access-" + refresh,
+			"token_type":    "Bearer",
+			"refresh_token": refresh,
+			"expiry":        expiry.Format(time.RFC3339Nano),
+		},
+		"auth_method": "gcp",
+		"project_id":  projectID,
+		"region":      region,
+		"id_token":    idToken,
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestUpsertAndMatchConsumerAndGCPSameSubject(t *testing.T) {
+	store := NewStore(t.TempDir())
+	expiry := time.Now().Add(time.Hour)
+	consumerRaw := testToken(t, "user@example.com", "subject-1", "refresh-consumer", expiry)
+	gcpRawA := testGCPToken(t, "user@example.com", "subject-1", "refresh-gcp-a", "sample-project-dev", "global", expiry)
+	gcpRawB := testGCPToken(t, "user@example.com", "subject-1", "refresh-gcp-b", "sample-project-prod", "us", expiry)
+
+	consumerRes, err := store.Upsert(consumerRaw, "personal", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcpResA, err := store.Upsert(gcpRawA, "work-lab", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcpResB, err := store.Upsert(gcpRawB, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !consumerRes.Created || !gcpResA.Created || !gcpResB.Created {
+		t.Fatalf("expected all three profiles to be created separately: %+v, %+v, %+v", consumerRes, gcpResA, gcpResB)
+	}
+	if consumerRes.Account.ID == gcpResA.Account.ID || gcpResA.Account.ID == gcpResB.Account.ID {
+		t.Fatalf("expected distinct account IDs: %q, %q, %q", consumerRes.Account.ID, gcpResA.Account.ID, gcpResB.Account.ID)
+	}
+	if got := gcpResB.Account.DisplayName(); got != "user@example.com [sample-project-prod]" {
+		t.Errorf("DisplayName = %q", got)
+	}
+
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 3 {
+		t.Fatalf("accounts = %d, want 3", len(reg.Accounts))
+	}
+
+	matchConsumer, err := reg.Match(consumerRaw)
+	if err != nil || matchConsumer == nil || matchConsumer.ID != consumerRes.Account.ID {
+		t.Fatalf("Match(consumer) = %+v, %v", matchConsumer, err)
+	}
+	matchGCPA, err := reg.Match(gcpRawA)
+	if err != nil || matchGCPA == nil || matchGCPA.ID != gcpResA.Account.ID {
+		t.Fatalf("Match(gcpA) = %+v, %v", matchGCPA, err)
+	}
+	if matches := reg.Resolve("sample-project-dev"); len(matches) != 1 || matches[0].ID != gcpResA.Account.ID {
+		t.Errorf("Resolve(sample-project-dev) = %+v", matches)
+	}
+	if matches := reg.Resolve("project-dev"); len(matches) != 1 || matches[0].ID != gcpResA.Account.ID {
+		t.Errorf("Resolve(project-dev) = %+v", matches)
 	}
 }

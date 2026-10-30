@@ -10,6 +10,8 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/fikrilal/agy-auth/internal/agy"
 )
 
 func TestChallengeRFCVector(t *testing.T) {
@@ -63,6 +65,18 @@ func TestAuthURLParameters(t *testing.T) {
 	}
 	if !strings.Contains(query.Get("scope"), "auth/aicode") {
 		t.Errorf("scope = %q", query.Get("scope"))
+	}
+
+	gcpParsed, err := url.Parse(AuthURLForMethod(state, verifier, agy.AuthMethodGCP))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcpScope := gcpParsed.Query().Get("scope")
+	if strings.Contains(gcpScope, "auth/aicode") {
+		t.Errorf("gcp scope should not contain auth/aicode: %q", gcpScope)
+	}
+	if !strings.Contains(gcpScope, "auth/cloud-platform") {
+		t.Errorf("gcp scope missing cloud-platform: %q", gcpScope)
 	}
 }
 
@@ -278,5 +292,24 @@ func TestDiscoverClient(t *testing.T) {
 	}
 	if _, _, err := discoverClient(strings.NewReader(data), hashString(id), hashString("missing")); err == nil {
 		t.Error("expected missing client secret error")
+	}
+}
+
+func TestClientCredentialsForMethod(t *testing.T) {
+	setTestClient(t)
+	oldGCPID, oldGCPSecret := GCPClientID, GCPClientSecret
+	GCPClientID, GCPClientSecret = "gcp-client", "gcp-secret"
+	defer func() {
+		GCPClientID, GCPClientSecret = oldGCPID, oldGCPSecret
+	}()
+
+	cid, sec, err := ClientCredentialsForMethod(agy.AuthMethodConsumer)
+	if err != nil || cid != "test-client" || sec != "test-secret" {
+		t.Errorf("Consumer credentials = %q, %q, %v", cid, sec, err)
+	}
+
+	cid, sec, err = ClientCredentialsForMethod(agy.AuthMethodGCP)
+	if err != nil || cid != "gcp-client" || sec != "gcp-secret" {
+		t.Errorf("GCP credentials = %q, %q, %v", cid, sec, err)
 	}
 }

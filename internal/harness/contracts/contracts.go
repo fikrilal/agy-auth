@@ -51,6 +51,21 @@ func Check(root string) error {
 		}
 		return nil
 	})
+	checkCredential("credential.gcp.json", true, func(tokenFile *agy.TokenFile) error {
+		if tokenFile.Email() != "user@example.com" {
+			return fmt.Errorf("email = %q", tokenFile.Email())
+		}
+		if tokenFile.AuthMethod != agy.AuthMethodGCP {
+			return fmt.Errorf("auth_method = %q", tokenFile.AuthMethod)
+		}
+		if tokenFile.ProjectID != "sample-gcp-project" {
+			return fmt.Errorf("project_id = %q", tokenFile.ProjectID)
+		}
+		if tokenFile.Region != agy.RegionGlobal {
+			return fmt.Errorf("region = %q", tokenFile.Region)
+		}
+		return nil
+	})
 	checkCredential("credential.minimal.json", true, func(tokenFile *agy.TokenFile) error {
 		if tokenFile.Token.AccessToken != "test-access" {
 			return fmt.Errorf("access token = %q", tokenFile.Token.AccessToken)

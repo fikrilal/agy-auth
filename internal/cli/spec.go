@@ -44,12 +44,16 @@ var commandSpecs = []CommandSpec{
 		Group:    "Account management",
 		Synopsis: "add",
 		Summary:  "Save the account currently signed in to agy",
-		Usage:    []string{"agy-auth add [--alias <alias>] [--target <target>]"},
+		Usage:    []string{"agy-auth add [--alias <alias>] [--target <target>] [--gcp --project <id> [--region <region>]]"},
 		Description: "Save the account currently signed in to agy and Antigravity Desktop. This does not change the active\n" +
-			"account or contact Google. Use \"agy-auth login\" to add another account.",
+			"account or contact Google. Pass --gcp and --project to tag the credential as a\n" +
+			"Google Cloud project (Pay As You Go) account. Use \"agy-auth login\" to add another account.",
 		Options: []OptionSpec{
 			{Flag: "--alias <alias>", Description: "Short name used by switch/remove queries"},
 			{Flag: "--target <target>", Description: "Capture target: all, cli, or desktop (default \"all\")"},
+			{Flag: "--gcp", Description: "Save as a Google Cloud project (Pay As You Go) account"},
+			{Flag: "--project <id>", Description: "Google Cloud project ID"},
+			{Flag: "--region <region>", Description: "Google Cloud region: global, us, or eu (default \"global\")"},
 		},
 	},
 	{
@@ -59,19 +63,27 @@ var commandSpecs = []CommandSpec{
 		Summary:  "Add an account through Google OAuth",
 		Usage: []string{
 			"agy-auth login [--alias <alias>] [--auth-method <method>]",
+			"               [--gcp --project <id> [--region <region>]]",
 			"               [--no-browser] [--via-agy] [--agy <path>]",
 		},
 		Description: "Add an account through Google OAuth. The default flow prints an authorization\n" +
 			"URL, opens a browser when possible, and asks for the code shown by\n" +
-			"antigravity.google/oauth-callback.",
+			"antigravity.google/oauth-callback. Pass --gcp and --project <id> (with optional\n" +
+			"--region global|us|eu) to sign in with a Google Cloud project in Pay As You Go mode.",
 		Options: []OptionSpec{
 			{Flag: "--alias <alias>", Description: "Short name used by switch/remove queries"},
 			{Flag: "--auth-method <name>", Description: "Stored auth_method value (default \"consumer\")"},
+			{Flag: "--gcp", Description: "Sign in with a Google Cloud project (Pay As You Go)"},
+			{Flag: "--project <id>", Description: "Google Cloud project ID for --gcp"},
+			{Flag: "--region <region>", Description: "Google Cloud region for --gcp: global, us, or eu (default \"global\")"},
 			{Flag: "--no-browser", Description: "Only print the authorization URL"},
 			{Flag: "--via-agy", Description: "Run agy in an isolated login directory; import only on success"},
 			{Flag: "--agy <path>", Description: "agy executable for OAuth client discovery or --via-agy (default: search PATH)"},
 		},
-		Examples: []string{"agy-auth login --alias work"},
+		Examples: []string{
+			"agy-auth login --alias personal",
+			"agy-auth login --gcp --project sample-gcp-project --region global --alias work",
+		},
 	},
 	{
 		Name:     "switch",
@@ -82,8 +94,8 @@ var commandSpecs = []CommandSpec{
 		Usage:    []string{"agy-auth switch [<query>|-] [--live] [--target <target>] [--relaunch] [--close-desktop]"},
 		Description: "Switch the active agy and Antigravity Desktop credentials. Without a query, an interactive picker is\n" +
 			"shown. Queries accept a row number from \"agy-auth list\", an alias, an exact\n" +
-			"email, an email substring, or an account ID prefix. --live opens a refreshing\n" +
-			"view and switches on Enter.",
+			"project ID, an exact email, an email/project substring, or an account ID prefix.\n" +
+			"--live opens a refreshing view and switches on Enter.",
 		Options: []OptionSpec{
 			{Flag: "--target <target>", Description: "Switch target: all, cli, or desktop (default \"all\")"},
 			{Flag: "--relaunch", Description: "Relaunch Antigravity Desktop after switching"},
@@ -197,18 +209,21 @@ var commandSpecs = []CommandSpec{
 		Synopsis: "import <path> | --purge",
 		Summary:  "Import credential JSON or rebuild the registry",
 		Usage: []string{
-			"agy-auth import <file-or-directory> [--alias <alias>] [--activate]",
+			"agy-auth import <file-or-directory> [--alias <alias>] [--activate] [--gcp --project <id> [--region <region>]]",
 			"agy-auth import --purge",
 		},
 		Description: "Import agy credential JSON files (the same format as\n" +
 			"~/.gemini/antigravity-cli/antigravity-oauth-token). Invalid files are skipped\n" +
-			"and reported. --alias is only valid for a single file. Imported accounts do not\n" +
-			"become active unless --activate is passed (the first account is always selected).\n" +
+			"and reported. --alias, --gcp, --project, and --region are only valid for a single\n" +
+			"file. Imported accounts do not become active unless --activate is passed.\n" +
 			"--purge rebuilds registry.json from stored account snapshots, preserving aliases\n" +
 			"and active/previous where possible.",
 		Options: []OptionSpec{
 			{Flag: "--alias <alias>", Description: "Alias for a single imported file"},
 			{Flag: "--activate", Description: "Activate a single imported file"},
+			{Flag: "--gcp", Description: "Mark a single imported file as a Google Cloud project account"},
+			{Flag: "--project <id>", Description: "Google Cloud project ID for a single imported file"},
+			{Flag: "--region <region>", Description: "Google Cloud region: global, us, or eu (default \"global\")"},
 			{Flag: "--purge", Description: "Rebuild the registry from stored account snapshots"},
 		},
 		Examples: []string{"agy-auth import ./token.json --alias work", "agy-auth import --purge"},

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -59,16 +60,18 @@ func TestSnapshotRetentionAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o700 {
-		t.Errorf("backup dir permissions = %o", info.Mode().Perm())
-	}
-	for _, path := range managed {
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o700 {
+			t.Errorf("backup dir permissions = %o", info.Mode().Perm())
 		}
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("%s permissions = %o", filepath.Base(path), info.Mode().Perm())
+		for _, path := range managed {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("%s permissions = %o", filepath.Base(path), info.Mode().Perm())
+			}
 		}
 	}
 }
@@ -237,7 +240,9 @@ func TestSnapshotRehardensDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o700 {
-		t.Errorf("backup dir permissions = %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o700 {
+			t.Errorf("backup dir permissions = %o", info.Mode().Perm())
+		}
 	}
 }
