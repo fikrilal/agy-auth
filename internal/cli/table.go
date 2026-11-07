@@ -94,15 +94,14 @@ func (a *App) renderTableRows(out io.Writer, width int, columns []tableColumn, w
 		}
 	}
 	widths, selected := fitTableColumns(tableWidth, columns, widthRows)
-	headers := make([]string, len(columns))
-	for i := range columns {
-		headers[i] = columns[i].Header
-	}
 	headerPrefix := ""
 	if hasCursor {
 		headerPrefix = "  "
 	}
-	a.writeTableRow(out, columns, selected, widths, headers, false, headerPrefix, newline)
+	lineWidth := a.writeTableHeader(out, columns, selected, widths, headerPrefix, newline)
+	if lineWidth > 0 {
+		fmt.Fprint(out, a.dim(strings.Repeat("-", lineWidth))+newline)
+	}
 	for _, row := range rows {
 		if row.Spacer {
 			fmt.Fprint(out, newline)
@@ -237,6 +236,37 @@ func chosenTotal(chosen []bool, widths []int) int {
 		count++
 	}
 	return total
+}
+
+func (a *App) writeTableHeader(out io.Writer, columns []tableColumn, selected []int, widths []int, prefix string, newline string) int {
+	var builder strings.Builder
+	builder.WriteString(prefix)
+	for position, index := range selected {
+		if position > 0 {
+			builder.WriteString("  ")
+		}
+		cell := columns[index].Header
+		cell = truncatePlain(cell, widths[index])
+		padding := widths[index] - visibleWidth(cell)
+		coloredCell := cell
+		if strings.TrimSpace(cell) != "" {
+			coloredCell = a.cyan(cell)
+		}
+		if columns[index].Right {
+			if padding > 0 {
+				builder.WriteString(strings.Repeat(" ", padding))
+			}
+			builder.WriteString(coloredCell)
+		} else {
+			builder.WriteString(coloredCell)
+			if padding > 0 {
+				builder.WriteString(strings.Repeat(" ", padding))
+			}
+		}
+	}
+	line := strings.TrimRight(builder.String(), " ")
+	fmt.Fprint(out, line+newline)
+	return visibleWidth(line)
 }
 
 func (a *App) writeTableRow(out io.Writer, columns []tableColumn, selected []int, widths []int, cells []string, highlight bool, prefix string, newline string) {

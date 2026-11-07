@@ -1371,17 +1371,20 @@ func TestRenderAccountTableInteractiveHighlight(t *testing.T) {
 		t.Errorf("expected cyan account styling in output: %q", output)
 	}
 	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
-	if len(lines) < 3 {
-		t.Fatalf("expected at least 3 lines, got %d: %q", len(lines), output)
+	if len(lines) < 4 {
+		t.Fatalf("expected at least 4 lines, got %d: %q", len(lines), output)
 	}
-	if !strings.HasPrefix(lines[0], "   #") {
-		t.Errorf("header should have padding prefix: %q", lines[0])
+	if !strings.HasPrefix(lines[0], "   \x1b[36m#\x1b[0m") {
+		t.Errorf("header should have padding prefix and cyan color: %q", lines[0])
 	}
-	if !strings.HasPrefix(lines[1], "\x1b[32m>\x1b[0m \x1b[1m01\x1b[0m") {
-		t.Errorf("selected row should have cursor prefix: %q", lines[1])
+	if !strings.HasPrefix(lines[1], "\x1b[2m---") {
+		t.Errorf("divider line should have dim dashes: %q", lines[1])
 	}
-	if !strings.HasPrefix(lines[2], "  02") {
-		t.Errorf("unselected row should have padding prefix: %q", lines[2])
+	if !strings.HasPrefix(lines[2], "\x1b[32m>\x1b[0m \x1b[1m01\x1b[0m") {
+		t.Errorf("selected row should have cursor prefix: %q", lines[2])
+	}
+	if !strings.HasPrefix(lines[3], "  02") {
+		t.Errorf("unselected row should have padding prefix: %q", lines[3])
 	}
 
 	out.Reset()
@@ -1392,11 +1395,20 @@ func TestRenderAccountTableInteractiveHighlight(t *testing.T) {
 		t.Errorf("expected no ANSI escape sequences with NoColor: %q", noColorOutput)
 	}
 	noColorLines := strings.Split(strings.TrimRight(noColorOutput, "\n"), "\n")
-	if !strings.HasPrefix(noColorLines[1], "  01") {
-		t.Errorf("unselected row 1 should have padding: %q", noColorLines[1])
+	if len(noColorLines) < 4 {
+		t.Fatalf("expected at least 4 lines in no-color output, got %d: %q", len(noColorLines), noColorOutput)
 	}
-	if !strings.HasPrefix(noColorLines[2], "> 02") {
-		t.Errorf("selected row 2 should have plain cursor prefix: %q", noColorLines[2])
+	if !strings.HasPrefix(noColorLines[0], "   #") {
+		t.Errorf("no-color header should have padding prefix: %q", noColorLines[0])
+	}
+	if !strings.HasPrefix(noColorLines[1], "---") {
+		t.Errorf("no-color divider line should have dashes: %q", noColorLines[1])
+	}
+	if !strings.HasPrefix(noColorLines[2], "  01") {
+		t.Errorf("unselected row 1 should have padding: %q", noColorLines[2])
+	}
+	if !strings.HasPrefix(noColorLines[3], "> 02") {
+		t.Errorf("selected row 2 should have plain cursor prefix: %q", noColorLines[3])
 	}
 }
 
@@ -3417,4 +3429,68 @@ func TestSpinner(t *testing.T) {
 	if out.Len() != 0 {
 		t.Errorf("expected no output when NO_COLOR is set, got: %q", out.String())
 	}
+}
+
+func TestTableHeadersAndDivider(t *testing.T) {
+	env := newTestEnv(t, false)
+	rows := []accountRow{
+		{Number: 1, ID: "acct_1", Active: true, Stored: true, Email: "user@example.com", Alias: "test"},
+	}
+
+	t.Run("TTY with color has cyan headers and dim divider", func(t *testing.T) {
+		app, out, _ := env.app("")
+		app.Width = 80
+		app.OutTTY = true
+		app.renderAccountRows(rows, testNow)
+		output := out.String()
+
+		lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+		if len(lines) < 3 {
+			t.Fatalf("expected at least 3 lines, got %d: %q", len(lines), output)
+		}
+
+		// Header row should have cyan styling
+		if !strings.Contains(lines[0], "\x1b[36mACCOUNT\x1b[0m") {
+			t.Errorf("header should have cyan ACCOUNT: %q", lines[0])
+		}
+		if !strings.Contains(lines[0], "\x1b[36m#\x1b[0m") {
+			t.Errorf("header should have cyan #: %q", lines[0])
+		}
+
+		// Divider row should be dim hyphens
+		if !strings.HasPrefix(lines[1], "\x1b[2m---") {
+			t.Errorf("divider should start with dim dashes, got: %q", lines[1])
+		}
+		if visibleWidth(lines[1]) != visibleWidth(lines[0]) {
+			t.Errorf("divider width (%d) should match header width (%d)", visibleWidth(lines[1]), visibleWidth(lines[0]))
+		}
+	})
+
+	t.Run("NoColor has unstyled headers and plain divider", func(t *testing.T) {
+		app, out, _ := env.app("")
+		app.Width = 80
+		app.OutTTY = true
+		app.NoColor = true
+		app.renderAccountRows(rows, testNow)
+		output := out.String()
+
+		if strings.Contains(output, "\x1b[") {
+			t.Errorf("expected no ANSI codes when NoColor is set, got: %q", output)
+		}
+
+		lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+		if len(lines) < 3 {
+			t.Fatalf("expected at least 3 lines, got %d: %q", len(lines), output)
+		}
+
+		if !strings.Contains(lines[0], "ACCOUNT") {
+			t.Errorf("header should contain ACCOUNT: %q", lines[0])
+		}
+		if !strings.HasPrefix(lines[1], "---") {
+			t.Errorf("divider should be plain dashes, got: %q", lines[1])
+		}
+		if visibleWidth(lines[1]) != visibleWidth(lines[0]) {
+			t.Errorf("divider width (%d) should match header width (%d)", visibleWidth(lines[1]), visibleWidth(lines[0]))
+		}
+	})
 }
