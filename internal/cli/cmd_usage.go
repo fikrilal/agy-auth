@@ -43,7 +43,9 @@ func (a *App) cmdUsage(args []string) int {
 	if a.UsageGroups == nil {
 		return a.failCode("quota_error", "Try again later.", "quota group provider is unavailable")
 	}
+	stop := a.startSpinner("Fetching quota...")
 	groups, err := a.fetchUsageGroups(tokenFile)
+	stop()
 	if err != nil {
 		return a.quotaFailure(err, usageLabel(account, tokenFile))
 	}
@@ -109,6 +111,8 @@ func (a *App) cmdUsageAll() int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), usageGroupTimeout)
 	defer cancel()
+	stop := a.startSpinner("Fetching quota groups...")
+	defer stop()
 	jobs := make(chan int)
 	workers := usageGroupWorkers
 	if len(accounts) < workers {
@@ -136,6 +140,7 @@ func (a *App) cmdUsageAll() int {
 	}
 	close(jobs)
 	wait.Wait()
+	stop()
 
 	if !a.JSON {
 		failures := map[string]int{}

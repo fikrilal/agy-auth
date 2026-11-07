@@ -530,6 +530,8 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 		return a.usageFor(command, "interactive terminal unavailable for --live")
 	}
 	defer term.Restore(fd, rawState)
+	a.InTUI = true
+	defer func() { a.InTUI = false }()
 	fmt.Fprint(a.Out, "\x1b[?1049h\x1b[?25l")
 	defer fmt.Fprint(a.Out, "\x1b[?25h\x1b[?1049l")
 

@@ -3323,3 +3323,98 @@ func TestListQuotaTip(t *testing.T) {
 		t.Errorf("expected list with --json to omit tip, got: %q", out.String())
 	}
 }
+
+func TestSpinner(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+
+	// 1. When OutTTY is false, startSpinner does nothing.
+	env := newTestEnv(t, true)
+	app, out, _ := env.app("")
+	app.OutTTY = false
+	stop := app.startSpinner("Loading...")
+	time.Sleep(120 * time.Millisecond)
+	stop()
+	if out.Len() != 0 {
+		t.Errorf("expected no output when OutTTY is false, got: %q", out.String())
+	}
+
+	// 2. When JSON is true, startSpinner does nothing.
+	app, out, _ = env.app("")
+	app.OutTTY = true
+	app.JSON = true
+	stop = app.startSpinner("Loading...")
+	time.Sleep(120 * time.Millisecond)
+	stop()
+	if out.Len() != 0 {
+		t.Errorf("expected no output when JSON is true, got: %q", out.String())
+	}
+
+	// 3. Fast stop (< 100ms) does not emit spinner frames.
+	app, out, _ = env.app("")
+	app.OutTTY = true
+	stop = app.startSpinner("Loading...")
+	time.Sleep(20 * time.Millisecond)
+	stop()
+	if out.Len() != 0 {
+		t.Errorf("expected fast stop to emit nothing, got: %q", out.String())
+	}
+
+	// 4. Slow stop (> 100ms) emits spinner and cleanly erases on stop.
+	app, out, _ = env.app("")
+	app.OutTTY = true
+	stop = app.startSpinner("Loading...")
+	time.Sleep(150 * time.Millisecond)
+	stop()
+	output := out.String()
+	if !strings.Contains(output, "Loading...") {
+		t.Errorf("expected spinner output to contain message, got: %q", output)
+	}
+	if !strings.HasSuffix(output, "\r\033[K\033[?25h") {
+		t.Errorf("expected spinner to finish with erase sequence, got: %q", output)
+	}
+
+	// 5. When TERM is dumb, startSpinner does nothing.
+	t.Setenv("TERM", "dumb")
+	app, out, _ = env.app("")
+	app.OutTTY = true
+	stop = app.startSpinner("Loading...")
+	time.Sleep(120 * time.Millisecond)
+	stop()
+	if out.Len() != 0 {
+		t.Errorf("expected no output when TERM is dumb, got: %q", out.String())
+	}
+
+	// 6. When NoColor is true, startSpinner does nothing.
+	t.Setenv("TERM", "xterm-256color")
+	app, out, _ = env.app("")
+	app.OutTTY = true
+	app.NoColor = true
+	stop = app.startSpinner("Loading...")
+	time.Sleep(120 * time.Millisecond)
+	stop()
+	if out.Len() != 0 {
+		t.Errorf("expected no output when NoColor is true, got: %q", out.String())
+	}
+
+	// 7. When InTUI is true, startSpinner does nothing.
+	app, out, _ = env.app("")
+	app.OutTTY = true
+	app.InTUI = true
+	stop = app.startSpinner("Loading...")
+	time.Sleep(120 * time.Millisecond)
+	stop()
+	if out.Len() != 0 {
+		t.Errorf("expected no output when InTUI is true, got: %q", out.String())
+	}
+
+	// 8. When NO_COLOR is set, startSpinner does nothing.
+	t.Setenv("NO_COLOR", "1")
+	app, out, _ = env.app("")
+	app.OutTTY = true
+	stop = app.startSpinner("Loading...")
+	time.Sleep(120 * time.Millisecond)
+	stop()
+	if out.Len() != 0 {
+		t.Errorf("expected no output when NO_COLOR is set, got: %q", out.String())
+	}
+}

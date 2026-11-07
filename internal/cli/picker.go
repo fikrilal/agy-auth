@@ -138,6 +138,8 @@ func (a *App) chooseAccountInteractiveMode(accounts []registry.Account, activeID
 		return a.chooseAccountInteractiveFallback(accounts, activeID, title, numbers, withUsage, err)
 	}
 	defer term.Restore(fd, state)
+	a.InTUI = true
+	defer func() { a.InTUI = false }()
 
 	fmt.Fprint(a.Out, "\x1b[?1049h\x1b[?25l")
 	defer fmt.Fprint(a.Out, "\x1b[?25h\x1b[?1049l")
@@ -158,7 +160,7 @@ func (a *App) chooseAccountInteractiveMode(accounts []registry.Account, activeID
 	now := a.now()
 
 	render := func() {
-		fmt.Fprint(a.Out, "\x1b[H\x1b[2J")
+		fmt.Fprint(a.Out, "\x1b[H\x1b[2J\x1b[?25l")
 		fmt.Fprintf(a.Out, "%s\r\n", a.bold(title))
 		fmt.Fprintf(a.Out, "%s\r\n", a.dim("up/down or j/k move · 0-9 jump · enter select · q cancel"))
 		fmt.Fprint(a.Out, "\r\n")

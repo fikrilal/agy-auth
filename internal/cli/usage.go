@@ -76,6 +76,9 @@ func (a *App) enrichRows(rows []accountRow, fetch usageFetcher) map[string]int {
 		return nil
 	}
 
+	stop := a.startSpinner("Fetching quota...")
+	defer stop()
+
 	ctx, cancel := context.WithTimeout(context.Background(), usageFetchTimeout)
 	defer cancel()
 	queue := make(chan job)

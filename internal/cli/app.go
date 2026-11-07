@@ -34,6 +34,7 @@ type App struct {
 	Now              func() time.Time
 	TTY              bool
 	OutTTY           bool
+	InTUI            bool
 	JSON             bool
 	NoColor          bool
 	Width            int
