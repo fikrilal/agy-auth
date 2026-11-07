@@ -147,14 +147,14 @@ func (a *App) renderAccountTable(rows []accountRow, now time.Time, highlight int
 	a.renderTable(a.Out, width, columns, tableRows, newline)
 }
 
-func (a *App) accountTableRow(row accountRow, _ time.Time, checked *bool, indent, withUsage bool) tableRow {
+func (a *App) accountTableRow(row accountRow, now time.Time, checked *bool, indent, withUsage bool) tableRow {
 	number := "-"
 	if row.Number > 0 {
 		number = fmt.Sprintf("%02d", row.Number)
 	}
 	marker := " "
 	if row.Active {
-		marker = a.green("*")
+		marker = a.bold(a.yellow("*"))
 	}
 	account := row.displayName()
 	if indent {
@@ -177,8 +177,8 @@ func (a *App) accountTableRow(row accountRow, _ time.Time, checked *bool, indent
 			a.usageCell(row, false),
 			a.usageCell(row, true),
 			a.limitGroupCell(row),
-			a.resetCell(row, false),
-			a.resetCell(row, true),
+			a.resetCell(row, now, false),
+			a.resetCell(row, now, true),
 		)
 	}
 	return tableRow{Cells: cells}
@@ -201,7 +201,7 @@ func (a *App) limitGroupCell(row accountRow) string {
 	return "-"
 }
 
-func (a *App) resetCell(row accountRow, weekly bool) string {
+func (a *App) resetCell(row accountRow, now time.Time, weekly bool) string {
 	if row.Usage == nil {
 		return "-"
 	}
@@ -212,7 +212,7 @@ func (a *App) resetCell(row accountRow, weekly bool) string {
 	if window == nil || window.ResetsAt == nil {
 		return "-"
 	}
-	return window.ResetsAt.Local().Format("2006-01-02 15:04")
+	return formatResetTime(*window.ResetsAt, now)
 }
 
 func (a *App) usageCell(row accountRow, weekly bool) string {

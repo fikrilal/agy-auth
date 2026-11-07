@@ -184,50 +184,56 @@ func (a *App) cmdUsageAll() int {
 func (a *App) renderUsageAllTable(accounts []usageAccount) {
 	columns := []tableColumn{
 		{Header: "#", Min: 2, Max: 2, Priority: 0, Right: true, Required: true},
+		{Header: "", Min: 1, Max: 1, Priority: 0, Required: true},
 		{Header: "ACCOUNT", Min: 16, Max: 36, Priority: 1, Required: true, Flex: true},
 		{Header: "GROUP", Min: 20, Max: 32, Priority: 2, Required: true},
 		{Header: "5H", Min: 5, Max: 5, Priority: 3, Right: true},
-		{Header: "5H RESET", Min: 16, Max: 16, Priority: 4},
+		{Header: "5H RESET", Min: 14, Max: 18, Priority: 4},
 		{Header: "WEEKLY", Min: 8, Max: 8, Priority: 5, Right: true},
-		{Header: "WEEKLY RESET", Min: 16, Max: 16, Priority: 6},
+		{Header: "WEEKLY RESET", Min: 14, Max: 20, Priority: 6},
 	}
+	now := a.now()
 	rows := make([]tableRow, 0, len(accounts)*3)
 	for accountIndex, account := range accounts {
 		if accountIndex > 0 {
 			rows = append(rows, tableRow{Spacer: true})
 		}
 		label := account.row.displayName()
+		marker := " "
 		if account.row.Active {
-			label = "* " + label
+			marker = a.bold(a.yellow("*"))
 		}
 		number := fmt.Sprintf("%02d", account.row.Number)
 		if account.err != nil {
 			rows = append(rows, tableRow{Cells: []string{
-				number, label, "(usage unavailable: " + usage.ShortError(account.err) + ")", "-", "-", "-", "-",
+				number, marker, label, "(usage unavailable: " + usage.ShortError(account.err) + ")", "-", "-", "-", "-",
 			}})
 			continue
 		}
 		if len(account.groups.Groups) == 0 {
-			rows = append(rows, tableRow{Cells: []string{number, label, "(no quota groups returned)", "-", "-", "-", "-"}})
+			rows = append(rows, tableRow{Cells: []string{number, marker, label, "(no quota groups returned)", "-", "-", "-", "-"}})
 			continue
 		}
 		for i, group := range account.groups.Groups {
 			rowNumber := ""
+			rowMarker := ""
 			rowLabel := ""
 			if i == 0 {
 				rowNumber = number
+				rowMarker = marker
 				rowLabel = label
 			}
 			five := groupBucket(group, "5h")
 			weekly := groupBucket(group, "weekly")
 			rows = append(rows, tableRow{Cells: []string{
 				rowNumber,
+				rowMarker,
 				rowLabel,
 				group.Name,
 				a.groupPercent(five),
-				formatGroupReset(five),
+				formatGroupReset(five, now),
 				a.groupPercent(weekly),
-				formatGroupReset(weekly),
+				formatGroupReset(weekly, now),
 			}})
 		}
 	}
@@ -238,10 +244,11 @@ func (a *App) renderUsageGroupTable(groups usage.Groups) {
 	columns := []tableColumn{
 		{Header: "GROUP", Min: 20, Max: 32, Priority: 0, Required: true, Flex: true},
 		{Header: "5H", Min: 5, Max: 5, Priority: 1, Right: true},
-		{Header: "5H RESET", Min: 16, Max: 16, Priority: 2},
+		{Header: "5H RESET", Min: 14, Max: 18, Priority: 2},
 		{Header: "WEEKLY", Min: 8, Max: 8, Priority: 3, Right: true},
-		{Header: "WEEKLY RESET", Min: 16, Max: 16, Priority: 4},
+		{Header: "WEEKLY RESET", Min: 14, Max: 20, Priority: 4},
 	}
+	now := a.now()
 	rows := make([]tableRow, 0, len(groups.Groups))
 	for _, group := range groups.Groups {
 		five := groupBucket(group, "5h")
@@ -249,9 +256,9 @@ func (a *App) renderUsageGroupTable(groups usage.Groups) {
 		rows = append(rows, tableRow{Cells: []string{
 			group.Name,
 			a.groupPercent(five),
-			formatGroupReset(five),
+			formatGroupReset(five, now),
 			a.groupPercent(weekly),
-			formatGroupReset(weekly),
+			formatGroupReset(weekly, now),
 		}})
 	}
 	a.renderTable(a.Out, a.tableWidth(), columns, rows, "\n")
@@ -289,13 +296,13 @@ func normalizeUsageWindow(window string) string {
 	}
 }
 
-func formatGroupReset(bucket *usage.GroupBucket) string {
+func formatGroupReset(bucket *usage.GroupBucket, now time.Time) string {
 	if bucket == nil || strings.TrimSpace(bucket.ResetTime) == "" {
 		return "-"
 	}
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
 		if parsed, err := time.Parse(layout, bucket.ResetTime); err == nil {
-			return parsed.Local().Format("2006-01-02 15:04")
+			return formatResetTime(parsed, now)
 		}
 	}
 	return bucket.ResetTime

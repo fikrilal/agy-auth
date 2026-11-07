@@ -54,6 +54,60 @@ func humanUntil(target time.Time, now time.Time) string {
 	return "in " + humanDuration(delta)
 }
 
+func formatResetTime(target, now time.Time) string {
+	if target.IsZero() {
+		return "-"
+	}
+	delta := target.Sub(now)
+	if delta <= 0 {
+		return "ready"
+	}
+
+	loc := now.Location()
+	targetLoc := target.In(loc)
+	nowLoc := now
+
+	totalMins := int(delta.Round(time.Minute).Minutes())
+	var dur string
+	if totalMins < 1 {
+		dur = "<1m"
+	} else {
+		days := totalMins / (24 * 60)
+		remMins := totalMins % (24 * 60)
+		hours := remMins / 60
+		mins := remMins % 60
+		if days > 0 && hours > 0 {
+			dur = fmt.Sprintf("%dd %dh", days, hours)
+		} else if days > 0 {
+			dur = fmt.Sprintf("%dd", days)
+		} else if hours > 0 && mins > 0 {
+			dur = fmt.Sprintf("%dh %dm", hours, mins)
+		} else if hours > 0 {
+			dur = fmt.Sprintf("%dh", hours)
+		} else {
+			dur = fmt.Sprintf("%dm", mins)
+		}
+	}
+
+	timeStr := targetLoc.Format("15:04")
+	sameDay := targetLoc.Year() == nowLoc.Year() && targetLoc.YearDay() == nowLoc.YearDay()
+	if sameDay {
+		return fmt.Sprintf("%s (%s)", timeStr, dur)
+	}
+
+	targetMidnight := time.Date(targetLoc.Year(), targetLoc.Month(), targetLoc.Day(), 0, 0, 0, 0, loc)
+	nowMidnight := time.Date(nowLoc.Year(), nowLoc.Month(), nowLoc.Day(), 0, 0, 0, 0, loc)
+	daysDiff := int(targetMidnight.Sub(nowMidnight).Hours() / 24)
+
+	if daysDiff >= 1 && daysDiff <= 7 {
+		dayStr := targetLoc.Format("Mon")
+		return fmt.Sprintf("%s %s (%s)", dayStr, timeStr, dur)
+	}
+
+	dateStr := targetLoc.Format("02 Jan")
+	return fmt.Sprintf("%s %s (%s)", dateStr, timeStr, dur)
+}
+
 func humanDuration(delta time.Duration) string {
 	if delta < time.Minute {
 		return "<1m"

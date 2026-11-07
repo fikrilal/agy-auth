@@ -2649,7 +2649,7 @@ func TestUsageCommand(t *testing.T) {
 	if code := app.Run([]string{"usage"}); code != 0 {
 		t.Fatalf("usage exit = %d, stderr = %s", code, errOut)
 	}
-	for _, want := range []string{"Account:", "GROUP", "Gemini Models", "Claude and GPT models", "58%", "100%", "2026-10-24"} {
+	for _, want := range []string{"Account:", "GROUP", "Gemini Models", "Claude and GPT models", "58%", "100%", "Sat 02:39 (3d 14h)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage output missing %q: %q", want, out.String())
 		}
@@ -3493,4 +3493,136 @@ func TestTableHeadersAndDivider(t *testing.T) {
 			t.Errorf("divider width (%d) should match header width (%d)", visibleWidth(lines[1]), visibleWidth(lines[0]))
 		}
 	})
+}
+
+func TestActiveMarkerBoldYellow(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	wantMarker := "\x1b[1m\x1b[33m*\x1b[0m\x1b[0m"
+
+	t.Run("list shows bold yellow marker for active account", func(t *testing.T) {
+		app, out, _ := env.app("")
+		app.Width = 120
+		app.OutTTY = true
+		if code := app.Run([]string{"list"}); code != 0 {
+			t.Fatalf("list exit = %d", code)
+		}
+		output := out.String()
+		if !strings.Contains(output, wantMarker) {
+			t.Errorf("expected bold yellow active marker in list output, got: %q", output)
+		}
+	})
+
+	t.Run("list --all shows bold yellow marker and aligns accounts", func(t *testing.T) {
+		provider := &testGroupsProvider{groups: usageGroups()}
+		app, out, _ := env.app("")
+		app.Width = 140
+		app.OutTTY = true
+		app.UsageGroups = provider
+		if code := app.Run([]string{"list", "--all"}); code != 0 {
+			t.Fatalf("list --all exit = %d", code)
+		}
+		output := out.String()
+		if !strings.Contains(output, wantMarker) {
+			t.Errorf("expected bold yellow active marker in list --all output, got: %q", output)
+		}
+	})
+
+	t.Run("NoColor shows plain asterisk", func(t *testing.T) {
+		app, out, _ := env.app("")
+		app.Width = 120
+		app.OutTTY = true
+		app.NoColor = true
+		if code := app.Run([]string{"list"}); code != 0 {
+			t.Fatalf("list exit = %d", code)
+		}
+		output := out.String()
+		if strings.Contains(output, "\x1b[") {
+			t.Errorf("expected no ANSI codes with NoColor, got: %q", output)
+		}
+		if !strings.Contains(output, "*") {
+			t.Errorf("expected plain asterisk with NoColor, got: %q", output)
+		}
+	})
+}
+
+func TestFormatResetTime(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 11, 8, 6, 28, 0, 0, loc)
+
+	tests := []struct {
+		name   string
+		target time.Time
+		want   string
+	}{
+		{
+			name:   "zero time returns dash",
+			target: time.Time{},
+			want:   "-",
+		},
+		{
+			name:   "past time returns ready",
+			target: now.Add(-10 * time.Minute),
+			want:   "ready",
+		},
+		{
+			name:   "exact now returns ready",
+			target: now,
+			want:   "ready",
+		},
+		{
+			name:   "same day under 1m",
+			target: now.Add(20 * time.Second),
+			want:   "06:28 (<1m)",
+		},
+		{
+			name:   "same day minutes only",
+			target: now.Add(35 * time.Minute),
+			want:   "07:03 (35m)",
+		},
+		{
+			name:   "same day hours and minutes",
+			target: now.Add(4*time.Hour + 35*time.Minute),
+			want:   "11:03 (4h 35m)",
+		},
+		{
+			name:   "same day exact hours",
+			target: now.Add(4 * time.Hour),
+			want:   "10:28 (4h)",
+		},
+		{
+			name:   "next day within 7 days shows weekday",
+			target: time.Date(2026, 11, 9, 0, 17, 0, 0, loc),
+			want:   "Mon 00:17 (17h 49m)",
+		},
+		{
+			name:   "within 7 days shows weekday and days",
+			target: time.Date(2026, 11, 14, 10, 13, 0, 0, loc),
+			want:   "Sat 10:13 (6d 3h)",
+		},
+		{
+			name:   "exact 7 days shows weekday and days",
+			target: time.Date(2026, 11, 15, 6, 28, 0, 0, loc),
+			want:   "Sun 06:28 (7d)",
+		},
+		{
+			name:   "beyond 7 days shows day month and days",
+			target: time.Date(2026, 11, 17, 12, 0, 0, 0, loc),
+			want:   "17 Nov 12:00 (9d 5h)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatResetTime(tc.target, now)
+			if got != tc.want {
+				t.Errorf("formatResetTime(%v, %v) = %q, want %q", tc.target, now, got, tc.want)
+			}
+		})
+	}
 }

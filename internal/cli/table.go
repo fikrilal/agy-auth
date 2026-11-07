@@ -42,8 +42,8 @@ func accountTableLayout(rows []accountRow) ([]tableColumn, bool) {
 			tableColumn{Header: "5H", Min: 4, Max: 5, Priority: 3, Right: true},
 			tableColumn{Header: "WEEKLY", Min: 6, Max: 10, Priority: 4, Right: true},
 			tableColumn{Header: "GROUP", Min: 12, Max: 24, Priority: 5},
-			tableColumn{Header: "5H RESET", Min: 16, Max: 16, Priority: 6},
-			tableColumn{Header: "WEEKLY RESET", Min: 16, Max: 16, Priority: 7},
+			tableColumn{Header: "5H RESET", Min: 14, Max: 18, Priority: 6},
+			tableColumn{Header: "WEEKLY RESET", Min: 14, Max: 20, Priority: 7},
 		)
 		return columns, true
 	}
