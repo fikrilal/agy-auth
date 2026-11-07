@@ -12,6 +12,7 @@ import (
 
 func (a *App) cmdList(args []string) int {
 	fs := a.newFlagSet("list")
+	all := fs.Bool("all", false, "show all quota groups across all stored accounts")
 	activeOnly := fs.Bool("active", false, "only show the active account")
 	noSync := fs.Bool("no-sync", false, "do not refresh the stored snapshot of the live account")
 	noUsage := fs.Bool("no-usage", false, "do not look up plan and quota")
@@ -26,7 +27,19 @@ func (a *App) cmdList(args []string) int {
 		if *activeOnly {
 			return a.usageFor("list", "list --live cannot be combined with --active")
 		}
+		if *all {
+			return a.usageFor("list", "list --live cannot be combined with --all")
+		}
 		return a.runLive(liveModeList, false)
+	}
+	if *all {
+		if *activeOnly {
+			return a.usageFor("list", "list --all cannot be combined with --active")
+		}
+		if *noUsage {
+			return a.usageFor("list", "list --all cannot be combined with --no-usage")
+		}
+		return a.cmdUsageAll()
 	}
 
 	reg, err := a.Store.Load()
@@ -210,6 +223,19 @@ func (a *App) cmdList(args []string) int {
 		fmt.Fprintln(a.Out)
 	}
 	a.renderAccountRows(displayRows, now)
+	if a.OutTTY && !*noUsage {
+		hasQuota := false
+		for _, row := range displayRows {
+			if row.Usage != nil && (row.Usage.FiveHour != nil || row.Usage.Weekly != nil) {
+				hasQuota = true
+				break
+			}
+		}
+		if hasQuota {
+			fmt.Fprintln(a.Out)
+			fmt.Fprintln(a.Out, a.dim("Tip: Showing limiting quota groups. Run 'agy-auth list --all' to see all groups."))
+		}
+	}
 	return 0
 }
 

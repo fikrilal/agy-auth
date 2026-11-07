@@ -35,11 +35,11 @@ Queries resolve in this order: row number, exact account ID, exact alias, exact 
 
 Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns.
 
-Account tables show `PLAN`, `5H`, `WEEKLY`, `GROUP`, `5H RESET`, and `WEEKLY RESET` when quota data is available. Token expiry, auth method, and last-used date are JSON-only. The `GROUP` column identifies the quota group owning the lower of the displayed `5H`/`WEEKLY` values; `agy-auth usage` shows every group explicitly.
+Account tables show `PLAN`, `5H`, `WEEKLY`, `GROUP`, `5H RESET`, and `WEEKLY RESET` when quota data is available. Token expiry, auth method, and last-used date are JSON-only. The `GROUP` column identifies the limiting quota group owning the lower of the displayed `5H`/`WEEKLY` values; run `agy-auth list --all` or `agy-auth usage` to see every group explicitly.
 
 ## Quota and live views
 
-`list` fetches the current plan and grouped quota summary from the Antigravity Code Assist backend. The quota source uses the project ID cached by `agy`, an `antigravity/cli` User-Agent, and the account's access token; expired access tokens are refreshed in memory through the same OAuth client used by `login`. Results are cached for 60 seconds (or the live interval while a live view is running). Quota failures are non-fatal: the table shows `-` (or cached values marked `*`) and JSON rows carry `usage_error`. Use `list --no-usage` to skip the lookup.
+`list` fetches the current plan and grouped quota summary from the Antigravity Code Assist backend. The quota source uses the project ID cached by `agy`, an `antigravity/cli` User-Agent, and the account's access token; expired access tokens are refreshed in memory through the same OAuth client used by `login`. Results are cached for 60 seconds (or the live interval while a live view is running). Quota failures are non-fatal: the table shows `-` (or cached values marked `*`) and JSON rows carry `usage_error`. Use `list --no-usage` to skip the lookup, or `list --all` to show all quota groups across all accounts.
 
 `agy-auth usage` shows the same grouped quota data as `agy /usage`: `Gemini Models`, `Claude and GPT models`, and any tier-specific group such as Ultra. Each group row has its 5-hour and weekly remaining percentages and reset times. `usage --all` compares every stored account, with a blank line between account blocks; a query selects one account.
 

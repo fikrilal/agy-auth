@@ -3207,3 +3207,119 @@ func TestRotateDesktopTargetAndRelaunch(t *testing.T) {
 		t.Errorf("output missing relaunch message: %q", out.String())
 	}
 }
+
+func TestListAll(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	provider := &testGroupsProvider{groups: usageGroups()}
+	app, out, errOut := env.app("")
+	app.Width = 140
+	app.UsageGroups = provider
+	if code := app.Run([]string{"list", "--all"}); code != 0 {
+		t.Fatalf("list --all exit = %d, stderr = %s", code, errOut)
+	}
+	for _, want := range []string{"ACCOUNT", "GROUP", "5H", "WEEKLY", "Gemini Models", "Claude and GPT models", "58%", "first", "second"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("list --all output missing %q: %q", want, out.String())
+		}
+	}
+
+	provider = &testGroupsProvider{groups: usageGroups()}
+	app, out, errOut = env.app("")
+	app.UsageGroups = provider
+	if code := app.Run([]string{"list", "--all", "--json"}); code != 0 {
+		t.Fatalf("list --all json exit = %d, stderr = %s", code, errOut)
+	}
+	envelope := decodeTestEnvelope(t, out)
+	if envelope.Command != "list" {
+		t.Errorf("command = %q, want list", envelope.Command)
+	}
+	var payload struct {
+		Accounts []struct {
+			Email  string        `json:"email"`
+			Groups []usage.Group `json:"groups"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Accounts) != 2 {
+		t.Fatalf("accounts len = %d", len(payload.Accounts))
+	}
+}
+
+func TestListAllFlagsValidation(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+
+	if code := app.Run([]string{"list", "--all", "--live"}); code != 2 {
+		t.Errorf("list --all --live exit = %d, want 2", code)
+	}
+	if code := app.Run([]string{"list", "--all", "--active"}); code != 2 {
+		t.Errorf("list --all --active exit = %d, want 2", code)
+	}
+	if code := app.Run([]string{"list", "--all", "--no-usage"}); code != 2 {
+		t.Errorf("list --all --no-usage exit = %d, want 2", code)
+	}
+}
+
+func TestListQuotaTip(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	// When OutTTY is true and quota is present, tip is printed.
+	app, out, errOut := env.app("")
+	app.Width = 120
+	app.OutTTY = true
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
+	if code := app.Run([]string{"list", "--no-sync"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	tip := "Tip: Showing limiting quota groups. Run 'agy-auth list --all' to see all groups."
+	if !strings.Contains(out.String(), tip) {
+		t.Errorf("expected list to contain tip %q, got: %q", tip, out.String())
+	}
+
+	// When OutTTY is false (piped output), tip is omitted.
+	app, out, errOut = env.app("")
+	app.Width = 120
+	app.OutTTY = false
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
+	if code := app.Run([]string{"list", "--no-sync"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	if strings.Contains(out.String(), tip) {
+		t.Errorf("expected list without OutTTY to omit tip, got: %q", out.String())
+	}
+
+	// When --no-usage is set, tip is omitted even if OutTTY is true.
+	app, out, errOut = env.app("")
+	app.Width = 120
+	app.OutTTY = true
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
+	if code := app.Run([]string{"list", "--no-sync", "--no-usage"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	if strings.Contains(out.String(), tip) {
+		t.Errorf("expected list with --no-usage to omit tip, got: %q", out.String())
+	}
+
+	// When --json is set, tip is omitted.
+	app, out, errOut = env.app("")
+	app.OutTTY = true
+	app.Usage = &testUsageProvider{snapshot: usageSnapshot()}
+	if code := app.Run([]string{"list", "--no-sync", "--json"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+	if strings.Contains(out.String(), tip) {
+		t.Errorf("expected list with --json to omit tip, got: %q", out.String())
+	}
+}

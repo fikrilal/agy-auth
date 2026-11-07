@@ -60,7 +60,7 @@ After switching, restart `agy`; a running session keeps the old credential in me
 
 | Command | Description |
 |---------|-------------|
-| `agy-auth list [--active] [--no-sync] [--no-usage] [--live]` | List accounts, plan, and quota |
+| `agy-auth list [--all] [--active] [--no-sync] [--no-usage] [--live]` | List accounts, plan, and quota |
 | `agy-auth add [--alias <alias>] [--target all\|cli\|desktop]` | Save the account signed in to agy or Desktop |
 | `agy-auth login [--alias <alias>] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
 | `agy-auth switch [<query>\|-] [--live] [--target all\|cli\|desktop] [--relaunch]` | Switch interactively, by query, or to the previous account |
@@ -86,7 +86,7 @@ Global options: `--json` for machine-readable output and `--no-color` to disable
 
 ## Quota and live views
 
-`agy-auth list` shows the current plan and the 5-hour/weekly quota groups, including reset times. `agy-auth usage --all` shows every group for every stored account:
+`agy-auth list` shows the current plan and the limiting 5-hour/weekly quota groups, including reset times. `agy-auth list --all` (or `agy-auth usage --all`) shows every group for every stored account:
 
 ![Quota Groups Comparison](assets/demo-usage.png)
 
