@@ -14,16 +14,17 @@ This page covers behavior beyond the [README](../README.md): storage, quota view
   encryption.key
   registry.json
   accounts/<account-id>.json
+  accounts/<account-id>.installation_id
   backups/active-<timestamp>.json
   backups/registry-<timestamp>.json
   update-check.json
 ```
 
-`accounts/*.json` and `backups/active-*.json` are encrypted with AES-256-GCM (`agy-auth-encrypted:v1:`). `encryption.key` is the separate 32-byte key file (`0600`, directory `0700`). Back up `encryption.key` separately; losing it makes the snapshots unrecoverable. Registry backups contain metadata only and remain plaintext.
+`accounts/*.json` and `backups/active-*.json` are encrypted with AES-256-GCM (`agy-auth-encrypted:v1:`). `accounts/*.installation_id` is the plaintext CLI installation UUID for that account. `encryption.key` is the separate 32-byte key file (`0600`, directory `0700`). Back up `encryption.key` separately; losing it makes the snapshots unrecoverable. Registry backups contain metadata only and remain plaintext.
 
 Before replacing or deleting the live credential, `agy-auth` snapshots the current value under `backups/` (`0600`, keep 5). `registry.json` is backed up when its contents change. `clean` prunes managed backups beyond retention and snapshots not referenced by the registry; if `registry.json` is missing, snapshots are preserved for rebuild.
 
-`switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. By default, `switch` also swaps the Antigravity Desktop profile in `~/.config/Antigravity/` (`--target=all`). Pass `--target=cli` or `--target=desktop` to restrict switching to one environment. Use `--relaunch` to gracefully restart running Desktop processes during switch. `agy` refreshes expired access tokens itself with the stored refresh token. Restart `agy` after switching; running sessions keep the old credential.
+`switch` writes the selected snapshot to both the OS keyring and the file fallback, then updates the registry. It also writes that account's CLI installation id to `~/.gemini/antigravity-cli/installation_id`. The account that is signed in keeps the id already on disk. Each later account gets its own. `add --target=desktop` does not change that file. `login` and `import --activate` save the signed-in account first when it is not stored yet, so its id is not given to the new account. By default, `switch` also swaps the Antigravity Desktop profile in `~/.config/Antigravity/` (`--target=all`). Pass `--target=cli` or `--target=desktop` to restrict switching to one environment. Use `--relaunch` to gracefully restart running Desktop processes during switch. `agy` refreshes expired access tokens itself with the stored refresh token. Restart `agy` after switching; running sessions keep the old credential.
 
 `rotate` inspects 5-hour quota across all stored accounts and automatically switches to the healthiest candidate with remaining quota when the active account is exhausted. If the active account is healthy, it reports the remaining quota and exits 0; pass `--force` to rotate unconditionally. It supports `--target=all|cli|desktop`, `--relaunch`, and `--close-desktop`.
 

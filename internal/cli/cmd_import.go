@@ -127,6 +127,8 @@ func (a *App) cmdImport(args []string) int {
 	summarizeImport(&report)
 
 	if *activate && !fromDirectory && singleRaw != nil && len(report.Imported) == 1 {
+		a.saveLiveAccount()
+		claimLive := a.retainLiveInstallationID()
 		writeReport := a.Storage.Write(singleRaw)
 		if !writeReport.OK() {
 			if errors.Is(writeReport.Error(), agy.ErrBackup) {
@@ -137,6 +139,9 @@ func (a *App) cmdImport(args []string) int {
 				Message: "imported the account but could not write the agy credential",
 				Hint:    fmt.Sprintf("Run `agy-auth switch %s` after fixing credential storage.", report.Imported[0].ID),
 			})
+		}
+		if err := a.ensureLiveInstallationID(report.Imported[0].ID, claimLive); err != nil {
+			a.warn("could not set the installation id: %v", err)
 		}
 		report.Activated = true
 	}

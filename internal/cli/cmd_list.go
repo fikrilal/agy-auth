@@ -288,6 +288,11 @@ func (a *App) cmdAdd(args []string) int {
 	if err != nil {
 		return a.registryFailure(err, "could not save the live agy credential")
 	}
+	if *target == "all" || *target == "cli" {
+		if err := a.ensureLiveInstallationID(result.Account.ID, true); err != nil {
+			a.warn("could not set the installation id: %v", err)
+		}
+	}
 
 	desktopCaptured := false
 	if a.Desktop != nil && (*target == "all" || *target == "desktop") {

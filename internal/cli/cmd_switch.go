@@ -184,6 +184,7 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 					warnings = append(warnings, "this snapshot has no refresh token; it will stop working when the access token expires")
 				}
 
+				claimLive := a.retainLiveInstallationID()
 				report = a.Storage.Write(raw)
 				if !report.OK() {
 					if errors.Is(report.Error(), agy.ErrBackup) {
@@ -193,6 +194,9 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 				}
 				if err := report.Error(); err != nil {
 					warnings = append(warnings, err.Error())
+				}
+				if err := a.ensureLiveInstallationID(account.ID, claimLive); err != nil {
+					warnings = append(warnings, fmt.Sprintf("could not set the installation id: %v", err))
 				}
 				cliSwitched = true
 				for _, source := range report.Written {

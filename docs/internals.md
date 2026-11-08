@@ -21,6 +21,14 @@ $HOME/.gemini/antigravity-cli/antigravity-oauth-token
 
 `agy` may also write a keyring timeout marker after a keyring failure and keep using the file for a period. `agy-auth` writes both stores on `switch` and `login` so either path carries the selected account.
 
+The same directory holds the CLI installation id:
+
+```
+$HOME/.gemini/antigravity-cli/installation_id
+```
+
+That file is one UUID. `agy` creates it once and sends it on telemetry. It is not part of the credential document and it is not a secret. `agy-auth` keeps a copy for each account at `accounts/<id>.installation_id` (`0600`). `add` for `--target=all` or `--target=cli` stores the live id with the account that is signed in. `add --target=desktop` does not change it. `switch`, `login`, and `import --activate` write the selected account's id back. An account with no stored id claims the live id only when that id is not already stored and could be bound to the signed-in account. Otherwise `agy-auth` mints a new UUID. See ADR 0003.
+
 ## Credential document
 
 Both stores contain the same JSON document:
@@ -64,6 +72,7 @@ Default directory: `os.UserConfigDir()/agy-auth` (for example `~/.config/agy-aut
 encryption.key
 registry.json
 accounts/<id>.json
+accounts/<id>.installation_id
 backups/active-<timestamp>.json
 backups/registry-<timestamp>.json
 ```
@@ -170,11 +179,13 @@ Queries resolve in this order: row number, exact account ID, exact alias, exact 
 1. Load `accounts/<id>.json`.
 2. Validate that it contains an access token or refresh token.
 3. Refuse to switch to an expired access token with no refresh token.
-4. Write the raw document to:
+4. If the live `installation_id` is not stored yet, save it on the account that owns the current credential. `login` and `import --activate` first store that credential when it is not already in the registry. If the id cannot be bound, the incoming account gets a new id instead of the unbound one.
+5. Write the raw document to:
    - the keyring (`gemini` / `antigravity`) via go-keyring, and
    - the file fallback, atomically with mode `0600`.
-5. Update `active`, `previous`, and `last_used_at`.
-6. Print a reminder to restart agy.
+6. Write the selected account's `installation_id` next to the credential file. Mint one when that account has none and the live id already belongs to another account.
+7. Update `active`, `previous`, and `last_used_at`.
+8. Print a reminder to restart agy.
 
 go-keyring's Linux `Set` uses Secret Service `CreateItem(..., replace=true)` with attributes `service` and `username`. It replaces agy's existing item in place, preserving a single entry.
 
@@ -184,7 +195,7 @@ go-keyring's Linux `Set` uses Secret Service `CreateItem(..., replace=true)` wit
 
 ## Clean
 
-`clean` removes managed backups beyond retention and snapshot files not referenced by `registry.json`. It only considers backup names matching `active-*.json`/`registry-*.json` with the managed timestamp form and snapshot names with valid account IDs; unknown files are left alone. If `registry.json` is missing, snapshots are preserved so the registry can be rebuilt from them. `--dry-run` reports the same set without deleting anything.
+`clean` removes managed backups beyond retention and snapshot files not referenced by `registry.json`. It only considers backup names matching `active-*.json`/`registry-*.json` with the managed timestamp form and snapshot names with valid account IDs, including `accounts/<id>.installation_id`; unknown files are left alone. If `registry.json` is missing, snapshots are preserved so the registry can be rebuilt from them. `--dry-run` reports the same set without deleting anything.
 
 ## Import and export
 
