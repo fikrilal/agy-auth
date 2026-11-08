@@ -145,22 +145,7 @@ func (a *App) cmdRotate(args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(a.Out, "Rotated to %s (%s).\n", res.Account.DisplayName(), reason)
-	if res.CLISwitched {
-		fmt.Fprintf(a.Out, "Wrote %s.\n", strings.Join(res.Written, " and "))
-	}
-	if res.DesktopSwitched {
-		fmt.Fprintln(a.Out, "Restored Antigravity Desktop profile.")
-		if res.DesktopRelaunched {
-			fmt.Fprintln(a.Out, "Relaunched Antigravity Desktop.")
-		}
-	}
-	for _, warning := range res.Warnings {
-		fmt.Fprintf(a.Err, "warning: %s\n", warning)
-	}
-	if res.CLISwitched {
-		fmt.Fprintln(a.Out, "Restart agy for the new account to take effect (running sessions keep the old credential).")
-	}
+	a.printSwitchSummary(fmt.Sprintf("Rotated to %s (%s).", res.Account.DisplayName(), reason), res)
 	return 0
 }
 

@@ -3626,3 +3626,51 @@ func TestFormatResetTime(t *testing.T) {
 		})
 	}
 }
+
+func TestSwitchSummaryFormatting(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "first"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+	addSecondAccount(t, env, "second@example.com", "subject-2", "refresh-2", "second")
+
+	t.Run("TTY switch shows checkmark and tip", func(t *testing.T) {
+		app, out, _ := env.app("")
+		app.Width = 100
+		app.OutTTY = true
+		if code := app.Run([]string{"switch", "second"}); code != 0 {
+			t.Fatalf("switch exit = %d", code)
+		}
+		output := out.String()
+		if !strings.Contains(output, "✔") {
+			t.Errorf("expected checkmark in switch output: %q", output)
+		}
+		if !strings.Contains(output, "Switched to second (second@example.com).") {
+			t.Errorf("expected account title in switch output: %q", output)
+		}
+		if !strings.Contains(output, "•") || !strings.Contains(output, "Wrote") {
+			t.Errorf("expected bullet and wrote in switch output: %q", output)
+		}
+		if !strings.Contains(output, "Tip: Restart running agy sessions to pick up the new credential.") {
+			t.Errorf("expected tip in switch output: %q", output)
+		}
+	})
+
+	t.Run("NoColor switch strips ANSI escapes", func(t *testing.T) {
+		app, out, _ := env.app("")
+		app.Width = 100
+		app.OutTTY = true
+		app.NoColor = true
+		if code := app.Run([]string{"switch", "first"}); code != 0 {
+			t.Fatalf("switch exit = %d", code)
+		}
+		output := out.String()
+		if strings.Contains(output, "\x1b[") {
+			t.Errorf("expected no ANSI codes with NoColor: %q", output)
+		}
+		if !strings.Contains(output, "✔ Switched to") {
+			t.Errorf("expected plain checkmark in NoColor output: %q", output)
+		}
+	})
+}
