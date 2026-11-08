@@ -4,13 +4,14 @@
 [![CI](https://github.com/fikrilal/agy-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/fikrilal/agy-auth/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/fikrilal/agy-auth)](LICENSE)
 
-`agy-auth` is an unofficial multi-account switcher for [Google Antigravity CLI](https://antigravity.google/docs/cli/overview) (`agy`). Keep personal, work, and test accounts side by side, switch the live credential, and see plan and quota limits without signing in again.
+`agy-auth` is an unofficial multi-account switcher for [Google Antigravity CLI](https://antigravity.google/docs/cli/overview) (`agy`) and the Antigravity Desktop app. Keep personal, work, and test accounts side by side, switch the live CLI credential and the Desktop profile, and see plan and quota limits without signing in again.
 
 ![Interactive Account Switcher](assets/demo-switch.png)
 
 ## Highlights
 
 - Switch accounts by row number, alias, email, or account ID.
+- Switch Antigravity CLI and the Desktop app together, or either one with `--target`.
 - See plan, 5-hour, weekly, group, and reset columns in `list` and `switch`.
 - Automatically rotate to accounts with remaining 5-hour quota with `agy-auth rotate`.
 - Compare Antigravity quota groups with `agy-auth usage` and `usage --all`.
@@ -54,7 +55,7 @@ agy-auth switch work
 agy-auth switch -
 ```
 
-After switching, restart `agy`; a running session keeps the old credential in memory. By default, `agy-auth switch` updates both the CLI credential and Antigravity Desktop profile; use `--relaunch` to restart Desktop automatically.
+After switching, restart `agy` and Antigravity Desktop. A running session keeps the old credential and install id in memory. `agy-auth switch` updates the CLI credential and the Desktop profile by default. Pass `--target=cli` or `--target=desktop` to switch one of them. Use `--relaunch` to restart Desktop automatically.
 
 ## Commands
 
@@ -124,7 +125,8 @@ See [Security](SECURITY.md) and the [user guide](docs/user-guide.md#storage-and-
 
 ## Requirements
 
-- Antigravity CLI installed. `agy-auth login` adds accounts directly; it uses the installed CLI to discover the OAuth client. Signing in to `agy` first is only needed for `agy-auth add` and for running `agy` after a switch.
+- Antigravity CLI (`agy`) for command-line use. `agy-auth login` discovers the OAuth client from the installed CLI. Signing in to `agy` first is only needed for `agy-auth add` and for running `agy` after a switch.
+- Antigravity Desktop is optional. When it is installed, `add` and `switch` snapshot and restore its profile. The default target is both CLI and Desktop.
 - Linux, macOS, or Windows. Linux uses a Secret Service provider when available and otherwise falls back to file storage.
 - Node.js 18+ for the npm package. The package bundles prebuilt binaries, so no Go toolchain is required.
 

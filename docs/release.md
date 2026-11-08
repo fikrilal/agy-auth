@@ -51,7 +51,7 @@ so `agy-auth version` matches the npm package version.
    - runs `go vet` and `go test`,
    - builds all six platform binaries into `npm/vendor/`,
    - publishes `@fikrilal/agy-auth` to npm when `NPM_TOKEN` is set,
-   - creates a GitHub release with the binaries and `checksums.txt`.
+   - creates a GitHub release whose body is the matching `CHANGELOG.md` section, and attaches the binaries and `checksums.txt`.
 
 ## Manual publish
 

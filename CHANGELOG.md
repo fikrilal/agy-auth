@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
+### Added
+
+- `agy-auth list --all` shows every quota group for every stored account. `list` also hints to run it when the table is showing only the limiting groups.
+- A spinner while quota is fetched.
+- Cyan table headers, a horizontal divider, and a bold yellow marker on the active account.
+- Human-readable quota reset times.
+- `switch` and `rotate` print a short summary of what was written, whether the Desktop profile was restored, and a restart tip.
+- Each account keeps its own CLI installation id. `switch`, `login`, and `import --activate` write that id to `~/.gemini/antigravity-cli/installation_id`. The account already signed in keeps the id on disk. Other accounts get a new id the first time they are used. No logout is required.
+- Each account keeps its own Desktop `.updaterId`. Desktop `add` and `switch` restore it. `--target=cli` does not change that file. Restart Desktop after a switch so the app reads the restored id.
+
+### Changed
+
+- The README and npm description cover Antigravity Desktop alongside the CLI.
+
 ## [0.3.0] - 2026-10-25
 
 ### Added
@@ -85,6 +101,7 @@ All notable changes to this project are documented here.
 - npm distribution with prebuilt Linux, macOS, and Windows binaries for x64 and arm64.
 - GitHub Actions CI and release workflows.
 
+[0.4.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.4.0
 [0.3.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.3.0
 [0.2.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.2.0
 [0.1.0]: https://github.com/fikrilal/agy-auth/releases/tag/v0.1.0
