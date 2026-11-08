@@ -41,6 +41,7 @@
 - Back up the live credential before replacing or deleting it and the registry before changing it. `clean` only removes managed backup names or orphan snapshots; it must preserve snapshots when `registry.json` is missing.
 - Account IDs are a stable hash of the Google `sub` claim; fall back to the refresh-token fingerprint.
 - CLI installation id: `~/.gemini/antigravity-cli/installation_id`. Each account stores `accounts/<id>.installation_id`. `switch` and `login` restore that account's id. The file is not a credential.
+- Desktop updater id: `.updaterId` in the Antigravity user-data directory. Each account stores `desktop/<id>/.updaterId`. Desktop `switch` and `add` restore that account's id. The file is not a credential.
 - Never commit the Antigravity OAuth client ID or secret. Only SHA-256 fingerprints live in `internal/oauth/oauth.go`.
 - Never log or print tokens or the OAuth client secret.
 - Writes must be atomic (temp file + rename). Tests must never touch the real keyring.

@@ -52,6 +52,7 @@ keyring + file mirror -> restart agy
 - Keyring item: service `gemini`, account `antigravity`.
 - File fallback: `~/.gemini/antigravity-cli/antigravity-oauth-token`.
 - CLI installation id: `~/.gemini/antigravity-cli/installation_id`, with a per-account copy at `accounts/<id>.installation_id`.
+- Desktop updater id: `.updaterId` in the Antigravity user-data directory, with a per-account copy at `desktop/<id>/.updaterId`.
 - `internal/agy/storage.go` is the only place that talks to the keyring.
 - Credential and registry writes use the atomic temp-file + rename helper with `0600`/`0700` permissions.
 - `internal/agy` and `internal/registry` snapshot the previous value before changing it; `internal/backup` owns timestamped names, retention, and pruning.

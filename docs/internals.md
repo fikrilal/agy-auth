@@ -268,6 +268,7 @@ Authentication in the Desktop app is preserved across a whitelist of session fil
 - `Local Storage/leveldb/` (Web storage for session identity)
 - `app_storage.json` (Application preferences and last logged-in username)
 - `Preferences` (Chromium browser preferences)
+- `.updaterId` (Electron updater UUID, not a credential). Each account's copy is `desktop/<account-id>/.updaterId` (`0600`). `add` for `--target=all` or `--target=desktop` stores the live id on the account being captured when no other account has it. `switch` for those targets writes the selected account's id back before the session files. An account with no stored id claims the live id only when that id is still unowned after it is bound to the active desktop account, or to the previous account when the active one has no desktop profile. Otherwise `agy-auth` mints a new UUID. `--target=cli` does not change the live file. A snapshot that has no `.updaterId` does not delete the live one. Restart Desktop after switching; a running app keeps the old id in memory.
 
 On Linux, Chromium encrypts session cookies with a master key stored in Secret Service (`application: Antigravity`, `schema: chrome_libsecret_os_crypt_password_v2`). Because this key is shared per user profile on the machine, snapshotted profiles in `~/.config/agy-auth/desktop/<account-id>/` decrypt seamlessly when swapped.
 

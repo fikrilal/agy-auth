@@ -235,6 +235,10 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 			}
 
 			if stillRunning, _, _ := a.Desktop.IsRunning(); !stillRunning {
+				claimLive := a.retainDesktopUpdaterID()
+				if err := a.ensureDesktopUpdaterID(account.ID, claimLive, false); err != nil {
+					warnings = append(warnings, fmt.Sprintf("could not set the desktop updater id: %v", err))
+				}
 				if err := a.Desktop.Restore(deskProfile); err != nil {
 					if tgt == "desktop" {
 						return nil, a.failCode("desktop_restore_failed", "Check directory permissions for Antigravity desktop profile.", "could not restore desktop profile: %v", err)

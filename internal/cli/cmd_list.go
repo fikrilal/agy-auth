@@ -300,6 +300,9 @@ func (a *App) cmdAdd(args []string) int {
 			deskDest := a.Store.DesktopProfilePath(result.Account.ID)
 			if err := a.Desktop.Snapshot(deskDest); err == nil {
 				desktopCaptured = true
+				if err := a.ensureDesktopUpdaterID(result.Account.ID, true, true); err != nil {
+					a.warn("could not set the desktop updater id: %v", err)
+				}
 				result.Account.HasDesktop = true
 				if reg, err := a.Store.Load(); err == nil {
 					for i := range reg.Accounts {

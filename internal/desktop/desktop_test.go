@@ -40,6 +40,14 @@ func TestHasProfile(t *testing.T) {
 	if !HasProfile(tmp) {
 		t.Fatal("directory with Cookies should have a profile")
 	}
+
+	updaterOnly := t.TempDir()
+	if err := os.WriteFile(filepath.Join(updaterOnly, UpdaterIDFile), []byte("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if HasProfile(updaterOnly) {
+		t.Fatal("updater id alone should not count as a profile")
+	}
 }
 
 func TestSnapshotRestoreAndBackup(t *testing.T) {
@@ -61,6 +69,10 @@ func TestSnapshotRestoreAndBackup(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(lsDir, "000001.log"), []byte("leveldb-log"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	const updater = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	if err := os.WriteFile(filepath.Join(configDir, UpdaterIDFile), []byte(updater), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	mgr := NewManager(configDir, "", backupDir)
 
@@ -78,9 +90,17 @@ func TestSnapshotRestoreAndBackup(t *testing.T) {
 	if err != nil || string(snapCookies) != "sqlite-cookies-content" {
 		t.Fatalf("unexpected snapshot cookies: %v, %s", err, string(snapCookies))
 	}
+	snapUpdater, err := os.ReadFile(filepath.Join(accountSnap, UpdaterIDFile))
+	if err != nil || string(snapUpdater) != updater {
+		t.Fatalf("unexpected snapshot updater id: %v, %s", err, string(snapUpdater))
+	}
 
 	// Modify config dir to simulate a different session
 	if err := os.WriteFile(filepath.Join(configDir, "Cookies"), []byte("new-cookies-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const replaced = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	if err := os.WriteFile(filepath.Join(configDir, UpdaterIDFile), []byte(replaced), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,6 +114,10 @@ func TestSnapshotRestoreAndBackup(t *testing.T) {
 	if err != nil || string(restoredCookies) != "sqlite-cookies-content" {
 		t.Fatalf("unexpected restored cookies: %v, %s", err, string(restoredCookies))
 	}
+	restoredUpdater, err := os.ReadFile(filepath.Join(configDir, UpdaterIDFile))
+	if err != nil || string(restoredUpdater) != updater {
+		t.Fatalf("unexpected restored updater id: %v, %s", err, string(restoredUpdater))
+	}
 
 	// Verify backup was created
 	desktopBackups := filepath.Join(backupDir, "desktop")
@@ -104,6 +128,38 @@ func TestSnapshotRestoreAndBackup(t *testing.T) {
 	backedUpCookies, err := os.ReadFile(filepath.Join(desktopBackups, entries[0].Name(), "Cookies"))
 	if err != nil || string(backedUpCookies) != "new-cookies-content" {
 		t.Fatalf("expected backup to have previous live cookies, got %v, %s", err, string(backedUpCookies))
+	}
+	backedUpdater, err := os.ReadFile(filepath.Join(desktopBackups, entries[0].Name(), UpdaterIDFile))
+	if err != nil || string(backedUpdater) != replaced {
+		t.Fatalf("expected backup updater id %s, got %v, %s", replaced, err, string(backedUpdater))
+	}
+}
+
+func TestRestoreKeepsUpdaterIDWhenSnapshotOmitsIt(t *testing.T) {
+	configDir := t.TempDir()
+	snapDir := t.TempDir()
+	const live = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	if err := os.WriteFile(filepath.Join(configDir, "Cookies"), []byte("live-cookies"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, UpdaterIDFile), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(snapDir, "Cookies"), []byte("snap-cookies"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := NewManager(configDir, "", "")
+	if err := mgr.Restore(snapDir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(configDir, UpdaterIDFile))
+	if err != nil || string(got) != live {
+		t.Fatalf("live updater id = %q, err = %v", got, err)
+	}
+	restoredCookies, err := os.ReadFile(filepath.Join(configDir, "Cookies"))
+	if err != nil || string(restoredCookies) != "snap-cookies" {
+		t.Fatalf("cookies = %q, err = %v", restoredCookies, err)
 	}
 }
 

@@ -38,6 +38,16 @@ var AuthDirs = []string{
 	"Local Storage",
 }
 
+// UpdaterIDFile is the Electron updater UUID in the Desktop user-data directory.
+// It is not an auth file: HasProfile ignores it, and a snapshot that lacks it
+// must not delete the live file.
+const UpdaterIDFile = ".updaterId"
+
+// UpdaterIDPath is the live updater id inside a Desktop user-data directory.
+func UpdaterIDPath(configDir string) string {
+	return filepath.Join(configDir, UpdaterIDFile)
+}
+
 // ProcessOps abstracts process detection and management for testability.
 type ProcessOps struct {
 	FindProcesses func() ([]int, error)
@@ -173,6 +183,9 @@ func (m *Manager) Snapshot(destDir string) error {
 			return fmt.Errorf("copy %s: %w", dir, err)
 		}
 	}
+	if err := copyUpdaterID(m.ConfigDir, destDir); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -222,6 +235,25 @@ func (m *Manager) Restore(srcDir string) error {
 		if err := copyDir(srcSub, destSub); err != nil {
 			return fmt.Errorf("restore %s: %w", dir, err)
 		}
+	}
+	if err := copyUpdaterID(srcDir, m.ConfigDir); err != nil {
+		return err
+	}
+	return nil
+}
+
+// copyUpdaterID copies .updaterId when the source has one.
+// A missing source leaves the destination file in place.
+func copyUpdaterID(srcDir, destDir string) error {
+	data, err := os.ReadFile(filepath.Join(srcDir, UpdaterIDFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", UpdaterIDFile, err)
+	}
+	if err := writeFileAtomic(filepath.Join(destDir, UpdaterIDFile), data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", UpdaterIDFile, err)
 	}
 	return nil
 }

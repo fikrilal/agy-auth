@@ -411,6 +411,96 @@ func (s *Store) InstallationOwner(value string) (string, error) {
 	return "", nil
 }
 
+// desktopUpdaterIDFile is the Electron updater UUID inside a desktop profile.
+// Keep it equal to desktop.UpdaterIDFile. registry does not import desktop.
+const desktopUpdaterIDFile = ".updaterId"
+
+func (s *Store) DesktopUpdaterPath(id string) (string, error) {
+	if err := validateID(id); err != nil {
+		return "", err
+	}
+	return filepath.Join(s.DesktopDir, id, desktopUpdaterIDFile), nil
+}
+
+// SaveDesktopUpdaterID stores the account's Desktop updater UUID inside its profile directory.
+func (s *Store) SaveDesktopUpdaterID(id, value string) error {
+	value = agy.NormalizeInstallationID(value)
+	if value == "" {
+		return agy.ErrInvalidInstallationID
+	}
+	owner, err := s.DesktopUpdaterOwner(value, id)
+	if err != nil {
+		return err
+	}
+	if owner != "" {
+		return fmt.Errorf("desktop updater id already belongs to %s", owner)
+	}
+	path, err := s.DesktopUpdaterPath(id)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(s.DesktopDir, 0o700); err != nil {
+		return fmt.Errorf("create desktop directory: %w", err)
+	}
+	if err := os.Chmod(s.DesktopDir, 0o700); err != nil {
+		return fmt.Errorf("harden desktop directory: %w", err)
+	}
+	return writeFileAtomic(path, []byte(value), 0o600)
+}
+
+// LoadDesktopUpdaterID reads the account's stored Desktop updater UUID.
+func (s *Store) LoadDesktopUpdaterID(id string) (string, error) {
+	path, err := s.DesktopUpdaterPath(id)
+	if err != nil {
+		return "", err
+	}
+	value, err := agy.ReadInstallationID(path)
+	if err != nil {
+		if errors.Is(err, agy.ErrInvalidInstallationID) {
+			return "", fmt.Errorf("account %s: %w", id, err)
+		}
+		return "", err
+	}
+	return value, nil
+}
+
+// DesktopUpdaterOwner reports an account other than skip that already stores value.
+// An empty skip searches every profile. An empty owner with a nil error means no
+// other account has it. A non-nil error means a profile could not be read.
+func (s *Store) DesktopUpdaterOwner(value, skip string) (string, error) {
+	value = agy.NormalizeInstallationID(value)
+	if value == "" {
+		return "", agy.ErrInvalidInstallationID
+	}
+	entries, err := os.ReadDir(s.DesktopDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read desktop updater ids: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		id := entry.Name()
+		if id == skip || validateID(id) != nil {
+			continue
+		}
+		stored, err := agy.ReadInstallationID(filepath.Join(s.DesktopDir, id, desktopUpdaterIDFile))
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, agy.ErrInvalidInstallationID) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("read desktop updater id for %s: %w", id, err)
+		}
+		if stored == value {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
 func (s *Store) DeleteToken(id string) error {
 	path, err := s.AccountTokenPath(id)
 	if err != nil {
