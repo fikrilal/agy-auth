@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-08
+
+### Fixed
+
+- Fixed terminal hang on subsequent input prompts (such as `Update now? [y/N]`) caused by background stdin reader goroutines leaking after exiting the interactive account picker or live view.
+
 ## [0.4.0] - 2026-11-08
 
 ### Added
