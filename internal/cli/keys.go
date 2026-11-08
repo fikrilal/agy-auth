@@ -46,18 +46,36 @@ func (k keyEvent) digit() (rune, bool) {
 	return k.r, true
 }
 
-func readKeyEvents(file *os.File, keys chan<- keyEvent) {
+func readKeyEvents(file *os.File, keys chan<- keyEvent, stop <-chan struct{}) {
 	defer close(keys)
 	chunks := make(chan []byte, 4)
+	chunkDone := make(chan struct{})
 	go func() {
 		defer close(chunks)
+		defer close(chunkDone)
 		buf := make([]byte, 64)
 		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			ready, err := waitForReadable(file, 25*time.Millisecond)
+			if err != nil {
+				return
+			}
+			if !ready {
+				continue
+			}
 			n, err := file.Read(buf)
 			if n > 0 {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
-				chunks <- chunk
+				select {
+				case chunks <- chunk:
+				case <-stop:
+					return
+				}
 			}
 			if err != nil {
 				return
@@ -84,6 +102,9 @@ func readKeyEvents(file *os.File, keys chan<- keyEvent) {
 
 	for {
 		select {
+		case <-stop:
+			<-chunkDone
+			return
 		case chunk, ok := <-chunks:
 			if !ok {
 				if len(pending) > 0 && pending[0] == 27 {
@@ -106,7 +127,12 @@ func readKeyEvents(file *os.File, keys chan<- keyEvent) {
 				break
 			}
 			pending = pending[consumed:]
-			keys <- event
+			select {
+			case keys <- event:
+			case <-stop:
+				<-chunkDone
+				return
+			}
 		}
 		if len(pending) > 0 && pending[0] == 27 {
 			setTimer()

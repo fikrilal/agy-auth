@@ -59,7 +59,9 @@ func TestReadKeyEvents(t *testing.T) {
 	}
 	defer reader.Close()
 	keys := make(chan keyEvent, 8)
-	go readKeyEvents(reader, keys)
+	stop := make(chan struct{})
+	defer close(stop)
+	go readKeyEvents(reader, keys, stop)
 	if _, err := writer.Write([]byte("\x1b[A\x1b[57353u7")); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +82,45 @@ func TestReadKeyEvents(t *testing.T) {
 	}
 	if events[2].kind != keyRune || events[2].r != '7' {
 		t.Errorf("digit = %+v", events[2])
+	}
+}
+
+func TestReadKeyEventsStopExitsPromptly(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+
+	keys := make(chan keyEvent, 8)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		readKeyEvents(reader, keys, stop)
+	}()
+
+	// Signal stop while reader is waiting for input
+	time.Sleep(20 * time.Millisecond)
+	close(stop)
+
+	select {
+	case <-done:
+		// Succeeded: readKeyEvents returned
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("readKeyEvents did not exit promptly after stop was closed")
+	}
+
+	// Verify keys channel was closed
+	select {
+	case _, ok := <-keys:
+		if ok {
+			t.Fatal("expected keys channel to be closed")
+		}
+	default:
+		t.Fatal("expected keys channel to be closed and readable")
 	}
 }
 

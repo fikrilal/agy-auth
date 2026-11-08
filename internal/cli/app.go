@@ -59,6 +59,14 @@ func New() (*App, error) {
 	}
 	deskMgr := desktop.NewManager("", "", backupDir)
 	usageClient := usage.NewClient(Version)
+	updateURL := defaultUpdateURL
+	if custom := os.Getenv("AGY_AUTH_UPDATE_URL"); custom != "" {
+		updateURL = custom
+	}
+	updateReleaseURL := defaultUpdateReleaseURL
+	if custom := os.Getenv("AGY_AUTH_UPDATE_RELEASE_URL"); custom != "" {
+		updateReleaseURL = custom
+	}
 	return &App{
 		In:               os.Stdin,
 		Out:              os.Stdout,
@@ -69,8 +77,8 @@ func New() (*App, error) {
 		Usage:            usage.NewCache(usageClient),
 		UsageFull:        usage.NewFullCache(usageClient),
 		UsageGroups:      usageClient,
-		UpdateURL:        defaultUpdateURL,
-		UpdateReleaseURL: defaultUpdateReleaseURL,
+		UpdateURL:        updateURL,
+		UpdateReleaseURL: updateReleaseURL,
 		Now:              time.Now,
 		TTY:              term.IsTerminal(int(os.Stdin.Fd())),
 		OutTTY:           term.IsTerminal(int(os.Stdout.Fd())),

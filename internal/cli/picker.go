@@ -169,7 +169,16 @@ func (a *App) chooseAccountInteractiveMode(accounts []registry.Account, activeID
 
 	render()
 	keys := make(chan keyEvent, 8)
-	go readKeyEvents(a.StdinFile, keys)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		readKeyEvents(a.StdinFile, keys, stop)
+	}()
+	defer func() {
+		close(stop)
+		<-done
+	}()
 	digits := ""
 	var digitAt time.Time
 	for key := range keys {

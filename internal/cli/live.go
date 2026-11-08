@@ -548,7 +548,16 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 	state.gen = 1
 
 	keys := make(chan keyEvent, 8)
-	go readKeyEvents(a.StdinFile, keys)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		readKeyEvents(a.StdinFile, keys, stop)
+	}()
+	defer func() {
+		close(stop)
+		<-done
+	}()
 	refreshCh := make(chan liveRefreshResult, 4)
 	startRefresh := func() {
 		if state.refreshing {
