@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-13
+
+### Added
+
+- Google Cloud Project (Pay As You Go, `auth_method: "gcp"`) account support across `agy-auth login`, `add`, and `import` via `--gcp`, `--project <id>`, and `--region <global|us|eu>` (plus interactive prompts on `login --gcp`).
+- Coexisting personal (`consumer`) and per-project (`gcp`) profiles for the same Google identity, with GCP project/region metadata shown in `list`, `current`, `status`, and query matching by project ID.
+- Automatic `~/.gemini/antigravity-cli/settings.json` synchronization for active GCP projects (`gcp.project` and `gcp.location`) while preserving existing settings and clearing the `gcp` block when switching to a consumer account or logging out.
+- GCP OAuth scope selection, strict GCP client discovery from `agy` (or `AGY_AUTH_GCP_CLIENT_ID` / `AGY_AUTH_GCP_CLIENT_SECRET`), `id_token_email` fallback, and project-scoped Code Assist quota queries.
+
 ## [0.4.1] - 2026-11-08
 
 ### Fixed
