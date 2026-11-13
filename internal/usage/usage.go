@@ -139,9 +139,6 @@ type Client struct {
 	HTTPClient   *http.Client
 	Now          func() time.Time
 	RefreshToken func(ctx context.Context, refreshToken string) (string, time.Time, error)
-
-	ensureOnce sync.Once
-	ensureErr  error
 }
 
 func NewClient(version string) *Client {
@@ -380,12 +377,6 @@ func (c *Client) refresh(ctx context.Context, token *agy.TokenFile) (string, tim
 		return accessToken, expiry, nil
 	}
 
-	c.ensureOnce.Do(func() {
-		c.ensureErr = oauth.EnsureClient("")
-	})
-	if c.ensureErr != nil {
-		return "", time.Time{}, fmt.Errorf("%w: %v", ErrRefresh, c.ensureErr)
-	}
 	response, err := oauth.RefreshForMethod(ctx, refreshToken, token.AuthMethod)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("%w: %v", ErrRefresh, err)

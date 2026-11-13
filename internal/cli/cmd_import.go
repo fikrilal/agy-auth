@@ -205,12 +205,12 @@ func (a *App) purgeRegistry() int {
 		old = nil
 	}
 	byID := map[string]registry.Account{}
-	bySubject := map[string]registry.Account{}
+	bySubject := map[string][]registry.Account{}
 	if old != nil {
 		for _, account := range old.Accounts {
 			byID[account.ID] = account
 			if account.Subject != "" {
-				bySubject[account.Subject] = account
+				bySubject[account.Subject] = append(bySubject[account.Subject], account)
 			}
 		}
 	}
@@ -260,8 +260,11 @@ func (a *App) purgeRegistry() int {
 		if oldAccount, ok := byID[account.ID]; ok {
 			carryAccount(&account, oldAccount)
 		} else if account.Subject != "" {
-			if oldAccount, ok := bySubject[account.Subject]; ok && oldAccount.AuthMethod == account.AuthMethod && oldAccount.ProjectID == account.ProjectID {
-				carryAccount(&account, oldAccount)
+			for _, oldAccount := range bySubject[account.Subject] {
+				if oldAccount.SameScope(account.AuthMethod, account.ProjectID) {
+					carryAccount(&account, oldAccount)
+					break
+				}
 			}
 		}
 		reg.Accounts = append(reg.Accounts, account)

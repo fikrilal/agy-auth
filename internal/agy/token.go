@@ -77,7 +77,7 @@ func ValidateProjectID(projectID string) (string, error) {
 		return "", errors.New("project ID cannot be empty")
 	}
 	if strings.ContainsAny(trimmed, " \t\r\n/") {
-		return "", errors.New("project ID cannot contain whitespace")
+		return "", errors.New("project ID cannot contain whitespace or slashes")
 	}
 	return trimmed, nil
 }

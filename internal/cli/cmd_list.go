@@ -333,7 +333,9 @@ func (a *App) cmdAdd(args []string) int {
 		if report := a.Storage.Write(raw); !report.OK() {
 			return a.failCode("credential_error", "Run `agy-auth status` to check keyring and file-mirror access.", "could not update the live agy credential")
 		}
-		_ = a.Storage.SyncSettings(agy.AuthMethodGCP, effectiveProject, effectiveRegion)
+		if err := a.Storage.SyncSettings(agy.AuthMethodGCP, effectiveProject, effectiveRegion); err != nil {
+			a.warn("settings: %v", err)
+		}
 	}
 	result, err := a.Store.Upsert(raw, *alias, true)
 	if err != nil {

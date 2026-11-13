@@ -3,6 +3,7 @@ package agy
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -139,8 +140,13 @@ func TestValidateProjectAndRegion(t *testing.T) {
 		t.Fatalf("ValidateProjectID valid = %q, %v", got, err)
 	}
 	for _, invalid := range []string{"", "   ", "bad project", "bad/project"} {
-		if _, err := ValidateProjectID(invalid); err == nil {
+		_, err := ValidateProjectID(invalid)
+		if err == nil {
 			t.Errorf("expected invalid project ID %q to fail", invalid)
+			continue
+		}
+		if strings.Contains(invalid, "/") && !strings.Contains(err.Error(), "slashes") {
+			t.Errorf("expected slash error for %q, got %q", invalid, err.Error())
 		}
 	}
 	if got, err := ValidateRegion(""); err != nil || got != RegionGlobal {
