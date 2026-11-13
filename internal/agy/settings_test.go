@@ -122,3 +122,24 @@ func TestSyncSettingsConsumerRemovesGCP(t *testing.T) {
 		t.Errorf("expected file to not be created for consumer")
 	}
 }
+
+func TestSyncSettingsPreservesLargeIntegers(t *testing.T) {
+	settingsPath := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"largeId":9007199254740993}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncSettings(settingsPath, AuthMethodGCP, "my-gcp-project", "global"); err != nil {
+		t.Fatalf("SyncSettings failed: %v", err)
+	}
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if string(doc["largeId"]) != "9007199254740993" {
+		t.Errorf("largeId mutated = %s, want 9007199254740993", doc["largeId"])
+	}
+}

@@ -32,7 +32,7 @@ Before replacing or deleting the live credential, `agy-auth` snapshots the curre
 
 ## Queries and tables
 
-Queries resolve in this order: row number, exact account ID, exact alias, exact email, exact GCP project ID, account ID prefix, then email/alias/ID/project substring. An ambiguous query opens a candidate picker in a terminal; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
+Queries resolve in this order: row number, exact account ID, exact alias, exact GCP project ID, exact email, account ID prefix, then email/alias/ID/project substring. An ambiguous query opens a candidate picker in a terminal; non-interactive and `--json` calls return `ambiguous_query` with candidates. `switch -` selects the account that was active before the last switch.
 
 Rows are ordered active first, then email. The same `01`-style numbers are used by `list`, pickers, and numeric queries. Same-email accounts share a dim header and only the indented child rows are numbered. Tables adapt to terminal width, truncating the account column and dropping lower-priority columns.
 

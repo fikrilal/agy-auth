@@ -50,8 +50,12 @@ func SyncSettings(settingsPath string, authMethod, projectID, region string) err
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
 		doc = make(map[string]any)
-	} else if err := json.Unmarshal(trimmed, &doc); err != nil {
-		return fmt.Errorf("parse settings %s: %w", settingsPath, err)
+	} else {
+		dec := json.NewDecoder(bytes.NewReader(trimmed))
+		dec.UseNumber()
+		if err := dec.Decode(&doc); err != nil {
+			return fmt.Errorf("parse settings %s: %w", settingsPath, err)
+		}
 	}
 
 	if doc == nil {

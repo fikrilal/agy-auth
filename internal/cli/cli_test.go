@@ -3818,3 +3818,141 @@ func TestGCPPayGoLoginAddSwitchAndStatus(t *testing.T) {
 		t.Errorf("status output = %q", out.String())
 	}
 }
+
+func TestLoginGCPExistingRefreshTokenAndPromptValidation(t *testing.T) {
+	setTestOAuthClient(t)
+	oldGCPID, oldGCPSecret := oauth.GCPClientID, oauth.GCPClientSecret
+	oauth.GCPClientID, oauth.GCPClientSecret = "gcp-client", "gcp-secret"
+	t.Cleanup(func() {
+		oauth.GCPClientID, oauth.GCPClientSecret = oldGCPID, oldGCPSecret
+	})
+
+	env := newTestEnv(t, true)
+	app, _, _ := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add personal exit = %d", code)
+	}
+
+	// Interactive TTY login --gcp with empty project ID must fail validation.
+	app, _, errOut := env.app("\n")
+	app.TTY = true
+	if code := app.Run([]string{"login", "--gcp"}); code != 2 || !strings.Contains(errOut.String(), "project ID cannot be empty") {
+		t.Fatalf("interactive empty project exit=%d, stderr=%q", code, errOut.String())
+	}
+
+	// Scoped refresh token reuse: do not reuse consumer refresh token for GCP login.
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"access_token": "gcp-access",
+			"expires_in":   3600,
+			"token_type":   "Bearer",
+			"id_token":     makeCLIIDToken(t, "user@example.com", "subject-1"),
+		})
+	}))
+	defer server.Close()
+	oldEndpoint, oldClient := oauth.TokenEndpoint, oauth.HTTPClient
+	oauth.TokenEndpoint, oauth.HTTPClient = server.URL, server.Client()
+	t.Cleanup(func() {
+		oauth.TokenEndpoint, oauth.HTTPClient = oldEndpoint, oldClient
+	})
+
+	app, _, errOut = env.app("the-code\n")
+	if code := app.Run([]string{"login", "--gcp", "--project", "sample-gcp-project", "--no-browser"}); code == 0 {
+		t.Fatal("expected GCP login without refresh token to fail instead of reusing consumer refresh token")
+	} else if !strings.Contains(errOut.String(), "refresh token") {
+		t.Errorf("unexpected error = %q", errOut.String())
+	}
+}
+
+func TestLoginViaAgyGCPRequiresProjectID(t *testing.T) {
+	env := newTestEnv(t, true)
+	script := fakeAgyLogin(t, makeCLIToken(t, "second@example.com", "subject-2", "refresh-2"), 0)
+	app, _, errOut := loginTestApp(t, env)
+	if code := app.Run([]string{"login", "--via-agy", "--gcp", "--agy", script}); code != 1 {
+		t.Fatalf("login --via-agy --gcp without project exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(errOut.String(), "project_id") {
+		t.Errorf("unexpected stderr = %q", errOut.String())
+	}
+}
+
+func TestImportPurgePreservesDualProfileAliasesAndSettingsWarnings(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add personal exit = %d, stderr = %s", code, errOut)
+	}
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"add", "--gcp", "--project", "sample-gcp-project", "--alias", "work"}); code != 0 {
+		t.Fatalf("add gcp exit = %d, stderr = %s", code, errOut)
+	}
+
+	// Test single-file import with --gcp and --activate.
+	importPath := filepath.Join(t.TempDir(), "cred.json")
+	if err := os.WriteFile(importPath, makeCLIToken(t, "other@example.com", "subject-other", "refresh-other"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"import", importPath, "--gcp", "--project", "imported-proj", "--alias", "imp-gcp", "--activate"}); code != 0 {
+		t.Fatalf("import --gcp exit = %d, stderr = %s", code, errOut)
+	}
+
+	// Simulate subject-fallback purge where old IDs differed from snapshot IDs for dual profiles.
+	store := registry.NewStore(env.storeDir)
+	regBefore, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range regBefore.Accounts {
+		if regBefore.Accounts[i].Subject == "subject-1" {
+			regBefore.Accounts[i].ID = fmt.Sprintf("acct_legacy_%d", i)
+		}
+	}
+	if err := store.Save(regBefore); err != nil {
+		t.Fatal(err)
+	}
+
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"import", "--purge"}); code != 0 {
+		t.Fatalf("import --purge exit = %d, stderr = %s", code, errOut)
+	}
+	regAfter, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regAfter.Accounts) != 3 {
+		t.Fatalf("accounts after purge = %d, want 3", len(regAfter.Accounts))
+	}
+	aliases := map[string]string{}
+	for _, acct := range regAfter.Accounts {
+		if acct.Subject == "subject-1" {
+			aliases[acct.AuthMethod] = acct.Alias
+		}
+	}
+	if aliases[agy.AuthMethodConsumer] != "personal" || aliases[agy.AuthMethodGCP] != "work" {
+		t.Errorf("lost profile aliases on purge: %+v", aliases)
+	}
+
+	// Make settings.json unwritable (a directory) and confirm SyncSettings warnings are emitted cleanly.
+	settingsPath := filepath.Join(filepath.Dir(env.tokenPath), "settings.json")
+	_ = os.RemoveAll(settingsPath)
+	if err := os.MkdirAll(settingsPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"add", "--gcp", "--project", "warn-project", "--alias", "warn-gcp"}); code != 0 {
+		t.Fatalf("add with broken settings.json exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(errOut.String(), "warning: settings:") {
+		t.Errorf("expected settings warning on add, stderr = %q", errOut.String())
+	}
+
+	app, _, errOut = env.app("")
+	if code := app.Run([]string{"remove", "--logout", "--yes", "warn-gcp"}); code != 0 {
+		t.Fatalf("remove --logout with broken settings.json exit = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(errOut.String(), "warning: settings:") {
+		t.Errorf("expected settings warning on remove --logout, stderr = %q", errOut.String())
+	}
+}

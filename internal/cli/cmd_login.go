@@ -59,7 +59,7 @@ func (a *App) cmdLogin(args []string) int {
 					return a.failCode("input_error", "Pass --project <id> or try again.", "could not read the Google Cloud project ID")
 				}
 				rawProject = strings.TrimSpace(inputProject)
-				if rawRegion == "" {
+				if rawRegion == "" && rawProject != "" {
 					inputRegion, err := a.readLine("Google Cloud region [global/us/eu] (default: global): ")
 					if err != nil {
 						return a.failCode("input_error", "Pass --region <region> or try again.", "could not read the Google Cloud region")
@@ -70,7 +70,7 @@ func (a *App) cmdLogin(args []string) int {
 				return a.usageFor("login", "--gcp requires --project <id>")
 			}
 		}
-		if rawProject != "" {
+		if rawProject != "" || !*viaAgy {
 			validatedProject, err := agy.ValidateProjectID(rawProject)
 			if err != nil {
 				return a.usageFor("login", "%s", err)
@@ -89,8 +89,12 @@ func (a *App) cmdLogin(args []string) int {
 	if *viaAgy {
 		return a.loginViaAgy(*alias, *agyPath, isGCP, projectID, regionValue)
 	}
-	if err := oauth.EnsureClient(*agyPath); err != nil {
-		return a.failCode("oauth_error", "Pass --agy <path>, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET.", "could not discover the Antigravity OAuth client")
+	if err := oauth.EnsureClientForMethod(*agyPath, effectiveAuthMethod); err != nil {
+		hint := "Pass --agy <path>, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET."
+		if isGCP {
+			hint = "Pass --agy <path>, or set AGY_AUTH_GCP_CLIENT_ID and AGY_AUTH_GCP_CLIENT_SECRET."
+		}
+		return a.failCode("oauth_error", hint, "could not discover the Antigravity OAuth client")
 	}
 	return a.loginOAuth(*alias, effectiveAuthMethod, projectID, regionValue, *noBrowser)
 }
@@ -273,6 +277,9 @@ func (a *App) loginViaAgy(alias, agyPath string, isGCP bool, projectID, region s
 		if effectiveProject == "" {
 			effectiveProject = tokenFile.ProjectID
 		}
+		if isGCP && strings.TrimSpace(effectiveProject) == "" {
+			return a.failCode("credential_error", "Select a Google Cloud project in agy, or pass --project <id>.", "Google Cloud login completed without a project_id")
+		}
 		effectiveRegion := region
 		if effectiveRegion == "" {
 			effectiveRegion = tokenFile.Region
@@ -366,7 +373,7 @@ func (a *App) existingRefreshToken(tokenFile agy.TokenFile) string {
 		return ""
 	}
 	for i := range reg.Accounts {
-		if reg.Accounts[i].Subject != claims.Subject {
+		if reg.Accounts[i].Subject != claims.Subject || !reg.Accounts[i].SameScope(tokenFile.AuthMethod, tokenFile.ProjectID) {
 			continue
 		}
 		raw, err := a.Store.LoadToken(reg.Accounts[i].ID)

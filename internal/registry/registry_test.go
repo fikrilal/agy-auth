@@ -768,3 +768,26 @@ func TestUpsertAndMatchConsumerAndGCPSameSubject(t *testing.T) {
 		t.Errorf("Resolve(project-dev) = %+v", matches)
 	}
 }
+
+func TestSameScopeSeparatesConsumerAndGCP(t *testing.T) {
+	consumer := Account{ID: "acct_c", AuthMethod: "consumer"}
+	legacy := Account{ID: "acct_l"}
+	gcpEmpty := Account{ID: "acct_g0", AuthMethod: "gcp"}
+	gcpProj := Account{ID: "acct_g1", AuthMethod: "gcp", ProjectID: "proj-1"}
+
+	if consumer.SameScope("gcp", "") || legacy.SameScope("gcp", "") {
+		t.Error("consumer account must not match gcp scope even with empty project ID")
+	}
+	if gcpEmpty.SameScope("consumer", "") || gcpEmpty.SameScope("", "") {
+		t.Error("gcp account must not match consumer scope")
+	}
+	if !gcpEmpty.SameScope("gcp", "") {
+		t.Error("gcp empty-project account should match gcp empty-project scope")
+	}
+	if gcpProj.SameScope("gcp", "") || gcpEmpty.SameScope("gcp", "proj-1") {
+		t.Error("gcp account with project ID must not match empty project ID")
+	}
+	if !gcpProj.SameScope("GCP", "PROJ-1") {
+		t.Error("gcp project matching should be case-insensitive")
+	}
+}

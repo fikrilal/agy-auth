@@ -743,14 +743,14 @@ func (r *Registry) Match(raw []byte) (*Account, error) {
 	}
 	if claims.Subject != "" {
 		for i := range r.Accounts {
-			if r.Accounts[i].Subject == claims.Subject && sameProfileScope(r.Accounts[i], tf.AuthMethod, projectID) {
+			if r.Accounts[i].Subject == claims.Subject && r.Accounts[i].SameScope(tf.AuthMethod, projectID) {
 				return &r.Accounts[i], nil
 			}
 		}
 	}
 	if fingerprint != "" {
 		for i := range r.Accounts {
-			if r.Accounts[i].Fingerprint == fingerprint && sameProfileScope(r.Accounts[i], tf.AuthMethod, projectID) {
+			if r.Accounts[i].Fingerprint == fingerprint && r.Accounts[i].SameScope(tf.AuthMethod, projectID) {
 				return &r.Accounts[i], nil
 			}
 		}
@@ -758,7 +758,7 @@ func (r *Registry) Match(raw []byte) (*Account, error) {
 	if email != "" {
 		var match *Account
 		for i := range r.Accounts {
-			if strings.EqualFold(r.Accounts[i].Email, email) && sameProfileScope(r.Accounts[i], tf.AuthMethod, projectID) {
+			if strings.EqualFold(r.Accounts[i].Email, email) && r.Accounts[i].SameScope(tf.AuthMethod, projectID) {
 				if match != nil {
 					return nil, nil
 				}
@@ -770,11 +770,17 @@ func (r *Registry) Match(raw []byte) (*Account, error) {
 	return nil, nil
 }
 
-func sameProfileScope(account Account, authMethod, projectID string) bool {
-	incomingGCP := strings.EqualFold(strings.TrimSpace(authMethod), agy.AuthMethodGCP) && strings.TrimSpace(projectID) != ""
-	accountGCP := strings.EqualFold(strings.TrimSpace(account.AuthMethod), agy.AuthMethodGCP) && strings.TrimSpace(account.ProjectID) != ""
-	if incomingGCP || accountGCP {
-		return incomingGCP && accountGCP && strings.EqualFold(strings.TrimSpace(account.ProjectID), strings.TrimSpace(projectID))
+// SameScope reports whether the account matches authMethod and projectID.
+// Consumer and GCP profiles are always distinct, and GCP profiles only match
+// the same case-insensitive project ID.
+func (a Account) SameScope(authMethod, projectID string) bool {
+	incomingGCP := strings.EqualFold(strings.TrimSpace(authMethod), agy.AuthMethodGCP) || strings.TrimSpace(projectID) != ""
+	accountGCP := strings.EqualFold(strings.TrimSpace(a.AuthMethod), agy.AuthMethodGCP) || strings.TrimSpace(a.ProjectID) != ""
+	if incomingGCP != accountGCP {
+		return false
+	}
+	if incomingGCP {
+		return strings.EqualFold(strings.TrimSpace(a.ProjectID), strings.TrimSpace(projectID))
 	}
 	return true
 }
@@ -993,12 +999,12 @@ func findAccountIndex(reg *Registry, id, subject, fingerprint, authMethod, proje
 		}
 	}
 	for i := range reg.Accounts {
-		if subject != "" && reg.Accounts[i].Subject == subject && sameProfileScope(reg.Accounts[i], authMethod, projectID) {
+		if subject != "" && reg.Accounts[i].Subject == subject && reg.Accounts[i].SameScope(authMethod, projectID) {
 			return i
 		}
 	}
 	for i := range reg.Accounts {
-		if fingerprint != "" && reg.Accounts[i].Fingerprint == fingerprint && sameProfileScope(reg.Accounts[i], authMethod, projectID) {
+		if fingerprint != "" && reg.Accounts[i].Fingerprint == fingerprint && reg.Accounts[i].SameScope(authMethod, projectID) {
 			return i
 		}
 	}
