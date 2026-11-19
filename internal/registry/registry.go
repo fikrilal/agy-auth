@@ -658,7 +658,7 @@ func (s *Store) Upsert(raw []byte, alias string, activate bool) (UpsertResult, e
 	}
 	previousActive := reg.Active
 
-	index := findAccountIndex(reg, id, claims.Subject, fingerprint, tf.AuthMethod, projectID)
+	index := findAccountIndex(reg, id, claims.Subject, fingerprint, email, tf.AuthMethod, projectID)
 	now := time.Now().UTC()
 	created := index < 0
 	if created {
@@ -724,7 +724,8 @@ func (s *Store) Upsert(raw []byte, alias string, activate bool) (UpsertResult, e
 }
 
 // Match finds the stored account that corresponds to a live credential
-// document, preferring the stable Google subject over the refresh token.
+// document, preferring the stable Google subject over the refresh token
+// and falling back to a unique matching email within the same scope.
 func (r *Registry) Match(raw []byte) (*Account, error) {
 	tf, err := agy.ParseTokenFile(raw)
 	if err != nil {
@@ -736,38 +737,11 @@ func (r *Registry) Match(raw []byte) (*Account, error) {
 	projectID := strings.TrimSpace(tf.ProjectID)
 	id := accountIDFor(claims.Subject, fingerprint, tf.AuthMethod, projectID)
 
-	for i := range r.Accounts {
-		if r.Accounts[i].ID == id {
-			return &r.Accounts[i], nil
-		}
+	index := findAccountIndex(r, id, claims.Subject, fingerprint, email, tf.AuthMethod, projectID)
+	if index < 0 {
+		return nil, nil
 	}
-	if claims.Subject != "" {
-		for i := range r.Accounts {
-			if r.Accounts[i].Subject == claims.Subject && r.Accounts[i].SameScope(tf.AuthMethod, projectID) {
-				return &r.Accounts[i], nil
-			}
-		}
-	}
-	if fingerprint != "" {
-		for i := range r.Accounts {
-			if r.Accounts[i].Fingerprint == fingerprint && r.Accounts[i].SameScope(tf.AuthMethod, projectID) {
-				return &r.Accounts[i], nil
-			}
-		}
-	}
-	if email != "" {
-		var match *Account
-		for i := range r.Accounts {
-			if strings.EqualFold(r.Accounts[i].Email, email) && r.Accounts[i].SameScope(tf.AuthMethod, projectID) {
-				if match != nil {
-					return nil, nil
-				}
-				match = &r.Accounts[i]
-			}
-		}
-		return match, nil
-	}
-	return nil, nil
+	return &r.Accounts[index], nil
 }
 
 // SameScope reports whether the account matches authMethod and projectID.
@@ -992,21 +966,43 @@ func accountIDFor(subject, fingerprint, authMethod, projectID string) string {
 	return "acct_" + hex.EncodeToString(sum[:])[:10]
 }
 
-func findAccountIndex(reg *Registry, id, subject, fingerprint, authMethod, projectID string) int {
+func findAccountIndex(reg *Registry, id, subject, fingerprint, email, authMethod, projectID string) int {
 	for i := range reg.Accounts {
 		if reg.Accounts[i].ID == id {
 			return i
 		}
 	}
-	for i := range reg.Accounts {
-		if subject != "" && reg.Accounts[i].Subject == subject && reg.Accounts[i].SameScope(authMethod, projectID) {
-			return i
+	if subject != "" {
+		for i := range reg.Accounts {
+			if reg.Accounts[i].Subject == subject && reg.Accounts[i].SameScope(authMethod, projectID) {
+				return i
+			}
 		}
 	}
-	for i := range reg.Accounts {
-		if fingerprint != "" && reg.Accounts[i].Fingerprint == fingerprint && reg.Accounts[i].SameScope(authMethod, projectID) {
-			return i
+	if fingerprint != "" {
+		for i := range reg.Accounts {
+			if reg.Accounts[i].Fingerprint == fingerprint && reg.Accounts[i].SameScope(authMethod, projectID) {
+				return i
+			}
 		}
+	}
+	if email != "" {
+		match := -1
+		for i := range reg.Accounts {
+			account := reg.Accounts[i]
+			if !strings.EqualFold(account.Email, email) || !account.SameScope(authMethod, projectID) {
+				continue
+			}
+			// Never merge two credentials that carry different non-empty subjects.
+			if subject != "" && account.Subject != "" && account.Subject != subject {
+				continue
+			}
+			if match >= 0 {
+				return -1
+			}
+			match = i
+		}
+		return match
 	}
 	return -1
 }
