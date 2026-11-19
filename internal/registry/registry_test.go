@@ -791,3 +791,133 @@ func TestSameScopeSeparatesConsumerAndGCP(t *testing.T) {
 		t.Error("gcp project matching should be case-insensitive")
 	}
 }
+
+func testTokenWithoutIDToken(t *testing.T, email, authMethod, projectID, refresh string, expiry time.Time) []byte {
+	t.Helper()
+	document := map[string]any{
+		"token": map[string]any{
+			"access_token":  "access-" + refresh,
+			"token_type":    "Bearer",
+			"refresh_token": refresh,
+			"expiry":        expiry.Format(time.RFC3339Nano),
+		},
+		"auth_method":    authMethod,
+		"id_token_email": email,
+	}
+	if projectID != "" {
+		document["project_id"] = projectID
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestUpsertDedupeByEmailWhenIDTokenMissing(t *testing.T) {
+	store := NewStore(t.TempDir())
+	expiry := time.Now().Add(time.Hour)
+
+	initial := testToken(t, "user@example.com", "subject-1", "refresh-1", expiry)
+	first, err := store.Upsert(initial, "personal", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate agy refreshing the credential without id_token (only id_token_email)
+	// and rotating the refresh token fingerprint.
+	refreshed := testTokenWithoutIDToken(t, "user@example.com", "consumer", "", "refresh-2", expiry)
+	second, err := store.Upsert(refreshed, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Created {
+		t.Fatal("refreshed credential without id_token should update existing account, not create a duplicate")
+	}
+	if second.Account.ID != first.Account.ID {
+		t.Errorf("account ID = %q, want %q", second.Account.ID, first.Account.ID)
+	}
+	if second.Account.Subject != "subject-1" {
+		t.Errorf("subject = %q, want %q", second.Account.Subject, "subject-1")
+	}
+	if second.Account.Alias != "personal" {
+		t.Errorf("alias = %q, want %q", second.Account.Alias, "personal")
+	}
+
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 1 {
+		t.Fatalf("accounts = %d, want 1", len(reg.Accounts))
+	}
+	matched, err := reg.Match(refreshed)
+	if err != nil || matched == nil || matched.ID != first.Account.ID {
+		t.Fatalf("Match(refreshed) = %+v, %v; want %q", matched, err, first.Account.ID)
+	}
+	storedRaw, err := store.LoadToken(first.Account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(storedRaw) != string(refreshed) {
+		t.Error("stored snapshot was not updated to refreshed credential")
+	}
+}
+
+func TestUpsertEmailFallbackRespectsSubjectAndScope(t *testing.T) {
+	store := NewStore(t.TempDir())
+	expiry := time.Now().Add(time.Hour)
+
+	// Start with a subject-less consumer account, then upgrade it with a full ID token.
+	noSub := testTokenWithoutIDToken(t, "user@example.com", "consumer", "", "refresh-1", expiry)
+	first, err := store.Upsert(noSub, "personal", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withSub := testToken(t, "user@example.com", "subject-1", "refresh-2", expiry)
+	upgraded, err := store.Upsert(withSub, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upgraded.Created || upgraded.Account.ID != first.Account.ID || upgraded.Account.Subject != "subject-1" {
+		t.Fatalf("expected subject-less account to upgrade in place, got %+v", upgraded)
+	}
+
+	// Same email in GCP scope must remain a separate account even without id_token.
+	gcpNoSub := testTokenWithoutIDToken(t, "user@example.com", "gcp", "proj-1", "refresh-gcp", expiry)
+	gcpRes, err := store.Upsert(gcpNoSub, "work", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gcpRes.Created {
+		t.Fatal("expected GCP profile without id_token to be created separately from consumer profile")
+	}
+
+	// Same email + same scope with a DIFFERENT non-empty subject must never merge.
+	differentSub := testToken(t, "user@example.com", "subject-2", "refresh-other", expiry)
+	otherRes, err := store.Upsert(differentSub, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !otherRes.Created {
+		t.Fatal("different non-empty subject with same email must create a distinct account")
+	}
+
+	// Now there are two consumer accounts sharing user@example.com (subject-1 and subject-2).
+	// A subject-less credential with an unknown fingerprint is ambiguous and must not match either.
+	reg, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Accounts) != 3 {
+		t.Fatalf("accounts = %d, want 3", len(reg.Accounts))
+	}
+	ambiguous := testTokenWithoutIDToken(t, "user@example.com", "consumer", "", "refresh-3", expiry)
+	matched, err := reg.Match(ambiguous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched != nil {
+		t.Errorf("Match(ambiguous) = %+v, want nil", matched)
+	}
+}

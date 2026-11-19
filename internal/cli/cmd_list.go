@@ -65,7 +65,7 @@ func (a *App) cmdList(args []string) int {
 		matched, _ = reg.Match(currentRaw)
 		if matched != nil && !*noSync {
 			if matched.Fingerprint != current.Fingerprint() ||
-				matched.Email != current.Email() ||
+				(current.Email() != "" && matched.Email != current.Email()) ||
 				matched.ProjectID != strings.TrimSpace(current.ProjectID) ||
 				matched.Region != strings.TrimSpace(current.Region) {
 				if _, err := a.Store.Upsert(currentRaw, "", false); err != nil {
