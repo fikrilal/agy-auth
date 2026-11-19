@@ -3956,3 +3956,75 @@ func TestImportPurgePreservesDualProfileAliasesAndSettingsWarnings(t *testing.T)
 		t.Errorf("expected settings warning on remove --logout, stderr = %q", errOut.String())
 	}
 }
+
+func TestListAutoSyncWithoutIDTokenDoesNotDuplicateAccount(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	store := registry.NewStore(env.storeDir)
+	before, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Accounts) != 1 {
+		t.Fatalf("initial accounts = %d, want 1", len(before.Accounts))
+	}
+	originalID := before.Accounts[0].ID
+
+	// Simulate agy rewriting the live token with id_token stripped (keeping id_token_email)
+	// and a rotated refresh token.
+	refreshed, err := json.Marshal(map[string]any{
+		"token": map[string]any{
+			"access_token":  "access-rotated",
+			"token_type":    "Bearer",
+			"refresh_token": "refresh-rotated",
+			"expiry":        time.Now().Add(time.Hour).Format(time.RFC3339Nano),
+		},
+		"auth_method":    agy.AuthMethodConsumer,
+		"id_token_email": "user@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(env.tokenPath, refreshed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, out, errOut := env.app("")
+	if code := app.Run([]string{"list", "--no-usage", "--json"}); code != 0 {
+		t.Fatalf("list exit = %d, stderr = %s", code, errOut)
+	}
+
+	var envelope struct {
+		Data struct {
+			Accounts []accountRow `json:"accounts"`
+			Current  *accountRow  `json:"current"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode list output: %v\n%s", err, out.String())
+	}
+	if len(envelope.Data.Accounts) != 1 {
+		t.Fatalf("accounts after list sync = %d, want 1: %+v", len(envelope.Data.Accounts), envelope.Data.Accounts)
+	}
+	got := envelope.Data.Accounts[0]
+	if got.ID != originalID {
+		t.Errorf("account ID = %q, want %q", got.ID, originalID)
+	}
+	if got.Alias != "personal" {
+		t.Errorf("alias = %q, want %q", got.Alias, "personal")
+	}
+	if !got.Active {
+		t.Error("expected refreshed account to stay active")
+	}
+	storedRaw, err := store.LoadToken(originalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(storedRaw) != string(refreshed) {
+		t.Error("stored snapshot was not refreshed in place")
+	}
+}
