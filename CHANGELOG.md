@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-22
+
 ### Fixed
 
 - Fixed duplicate account entries being created when `agy` refreshes a credential without `id_token` (only `id_token_email`) and rotates its refresh token; `Store.Upsert` now shares `Registry.Match`'s unique email + scope fallback without merging distinct Google subjects.
