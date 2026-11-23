@@ -420,6 +420,10 @@ func (s *Store) InstallationOwner(value string) (string, error) {
 // Keep it equal to desktop.UpdaterIDFile. registry does not import desktop.
 const desktopUpdaterIDFile = ".updaterId"
 
+// desktopInstallationIDFile is the Desktop language_server installation UUID
+// inside a desktop profile. Keep it equal to desktop.InstallationIDFile.
+const desktopInstallationIDFile = "installation_id"
+
 func (s *Store) DesktopUpdaterPath(id string) (string, error) {
 	if err := validateID(id); err != nil {
 		return "", err
@@ -429,21 +433,59 @@ func (s *Store) DesktopUpdaterPath(id string) (string, error) {
 
 // SaveDesktopUpdaterID stores the account's Desktop updater UUID inside its profile directory.
 func (s *Store) SaveDesktopUpdaterID(id, value string) error {
+	return s.saveDesktopUUID(id, desktopUpdaterIDFile, "desktop updater id", value)
+}
+
+// LoadDesktopUpdaterID reads the account's stored Desktop updater UUID.
+func (s *Store) LoadDesktopUpdaterID(id string) (string, error) {
+	return s.loadDesktopUUID(id, desktopUpdaterIDFile)
+}
+
+// DesktopUpdaterOwner reports an account other than skip that already stores value.
+// An empty skip searches every profile. An empty owner with a nil error means no
+// other account has it. A non-nil error means a profile could not be read.
+func (s *Store) DesktopUpdaterOwner(value, skip string) (string, error) {
+	return s.desktopUUIDOwner(desktopUpdaterIDFile, "desktop updater id", value, skip)
+}
+
+func (s *Store) DesktopInstallationPath(id string) (string, error) {
+	if err := validateID(id); err != nil {
+		return "", err
+	}
+	return filepath.Join(s.DesktopDir, id, desktopInstallationIDFile), nil
+}
+
+// SaveDesktopInstallationID stores the account's Desktop language_server installation UUID.
+func (s *Store) SaveDesktopInstallationID(id, value string) error {
+	return s.saveDesktopUUID(id, desktopInstallationIDFile, "desktop installation id", value)
+}
+
+// LoadDesktopInstallationID reads the account's stored Desktop language_server installation UUID.
+func (s *Store) LoadDesktopInstallationID(id string) (string, error) {
+	return s.loadDesktopUUID(id, desktopInstallationIDFile)
+}
+
+// DesktopInstallationOwner reports an account other than skip that already stores value.
+func (s *Store) DesktopInstallationOwner(value, skip string) (string, error) {
+	return s.desktopUUIDOwner(desktopInstallationIDFile, "desktop installation id", value, skip)
+}
+
+func (s *Store) saveDesktopUUID(id, fileName, label, value string) error {
 	value = agy.NormalizeInstallationID(value)
 	if value == "" {
 		return agy.ErrInvalidInstallationID
 	}
-	owner, err := s.DesktopUpdaterOwner(value, id)
+	owner, err := s.desktopUUIDOwner(fileName, label, value, id)
 	if err != nil {
 		return err
 	}
 	if owner != "" {
-		return fmt.Errorf("desktop updater id already belongs to %s", owner)
+		return fmt.Errorf("%s already belongs to %s", label, owner)
 	}
-	path, err := s.DesktopUpdaterPath(id)
-	if err != nil {
+	if err := validateID(id); err != nil {
 		return err
 	}
+	path := filepath.Join(s.DesktopDir, id, fileName)
 	if err := os.MkdirAll(s.DesktopDir, 0o700); err != nil {
 		return fmt.Errorf("create desktop directory: %w", err)
 	}
@@ -453,12 +495,11 @@ func (s *Store) SaveDesktopUpdaterID(id, value string) error {
 	return writeFileAtomic(path, []byte(value), 0o600)
 }
 
-// LoadDesktopUpdaterID reads the account's stored Desktop updater UUID.
-func (s *Store) LoadDesktopUpdaterID(id string) (string, error) {
-	path, err := s.DesktopUpdaterPath(id)
-	if err != nil {
+func (s *Store) loadDesktopUUID(id, fileName string) (string, error) {
+	if err := validateID(id); err != nil {
 		return "", err
 	}
+	path := filepath.Join(s.DesktopDir, id, fileName)
 	value, err := agy.ReadInstallationID(path)
 	if err != nil {
 		if errors.Is(err, agy.ErrInvalidInstallationID) {
@@ -469,10 +510,7 @@ func (s *Store) LoadDesktopUpdaterID(id string) (string, error) {
 	return value, nil
 }
 
-// DesktopUpdaterOwner reports an account other than skip that already stores value.
-// An empty skip searches every profile. An empty owner with a nil error means no
-// other account has it. A non-nil error means a profile could not be read.
-func (s *Store) DesktopUpdaterOwner(value, skip string) (string, error) {
+func (s *Store) desktopUUIDOwner(fileName, label, value, skip string) (string, error) {
 	value = agy.NormalizeInstallationID(value)
 	if value == "" {
 		return "", agy.ErrInvalidInstallationID
@@ -482,7 +520,7 @@ func (s *Store) DesktopUpdaterOwner(value, skip string) (string, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", nil
 		}
-		return "", fmt.Errorf("read desktop updater ids: %w", err)
+		return "", fmt.Errorf("read %ss: %w", label, err)
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -492,12 +530,12 @@ func (s *Store) DesktopUpdaterOwner(value, skip string) (string, error) {
 		if id == skip || validateID(id) != nil {
 			continue
 		}
-		stored, err := agy.ReadInstallationID(filepath.Join(s.DesktopDir, id, desktopUpdaterIDFile))
+		stored, err := agy.ReadInstallationID(filepath.Join(s.DesktopDir, id, fileName))
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, agy.ErrInvalidInstallationID) {
 			continue
 		}
 		if err != nil {
-			return "", fmt.Errorf("read desktop updater id for %s: %w", id, err)
+			return "", fmt.Errorf("read %s for %s: %w", label, id, err)
 		}
 		if stored == value {
 			return id, nil

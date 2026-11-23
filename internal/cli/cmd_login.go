@@ -26,6 +26,8 @@ func (a *App) cmdLogin(args []string) int {
 	noBrowser := fs.Bool("no-browser", false, "only print the authorization URL")
 	viaAgy := fs.Bool("via-agy", false, "let agy perform the sign-in flow")
 	agyPath := fs.String("agy", "", "agy executable for OAuth client discovery and --via-agy")
+	relaunch := fs.Bool("relaunch", false, "relaunch Antigravity desktop after logging in")
+	closeDesktop := fs.Bool("close-desktop", false, "gracefully close Antigravity desktop before syncing")
 	if ok, code := a.parseFlags(fs, args); !ok {
 		return code
 	}
@@ -86,8 +88,13 @@ func (a *App) cmdLogin(args []string) int {
 		}
 	}
 
+	deskOpts := switchOptions{
+		Target:       "all",
+		Relaunch:     *relaunch,
+		CloseDesktop: *closeDesktop,
+	}
 	if *viaAgy {
-		return a.loginViaAgy(*alias, *agyPath, isGCP, projectID, regionValue)
+		return a.loginViaAgy(*alias, *agyPath, isGCP, projectID, regionValue, deskOpts)
 	}
 	if err := oauth.EnsureClientForMethod(*agyPath, effectiveAuthMethod); err != nil {
 		hint := "Pass --agy <path>, set AGY_AUTH_AGY_PATH, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET."
@@ -96,10 +103,10 @@ func (a *App) cmdLogin(args []string) int {
 		}
 		return a.failCode("oauth_error", hint, "could not discover the Antigravity OAuth client")
 	}
-	return a.loginOAuth(*alias, effectiveAuthMethod, projectID, regionValue, *noBrowser)
+	return a.loginOAuth(*alias, effectiveAuthMethod, projectID, regionValue, *noBrowser, deskOpts)
 }
 
-func (a *App) loginOAuth(alias, authMethod, projectID, region string, noBrowser bool) int {
+func (a *App) loginOAuth(alias, authMethod, projectID, region string, noBrowser bool, deskOpts switchOptions) int {
 	state, err := oauth.NewState()
 	if err != nil {
 		return a.failCode("oauth_error", "Retry the login flow.", "could not start the OAuth flow")
@@ -159,6 +166,7 @@ func (a *App) loginOAuth(alias, authMethod, projectID, region string, noBrowser 
 		return a.failCode("oauth_error", "Try signing in again.", "could not prepare the credential document")
 	}
 	a.saveLiveAccount()
+	prevKeeper := a.currentDesktopKeeperHint()
 	claimLive := a.retainLiveInstallationID()
 	result, err := a.Store.Upsert(raw, alias, true)
 	if err != nil {
@@ -187,10 +195,13 @@ func (a *App) loginOAuth(alias, authMethod, projectID, region string, noBrowser 
 	if err := a.ensureLiveInstallationID(result.Account.ID, claimLive); err != nil {
 		warnings = append(warnings, fmt.Sprintf("could not set the installation id: %v", err))
 	}
-	return a.finishLogin(result, report, warnings)
+	isGCP := strings.EqualFold(strings.TrimSpace(authMethod), agy.AuthMethodGCP) || strings.TrimSpace(projectID) != ""
+	deskRes, _ := a.syncDesktopForAccount(&result.Account, raw, isGCP, deskOpts, prevKeeper)
+	warnings = append(warnings, deskRes.Warnings...)
+	return a.finishLoginWithDesktop(result, report, deskRes, warnings)
 }
 
-func (a *App) loginViaAgy(alias, agyPath string, isGCP bool, projectID, region string) int {
+func (a *App) loginViaAgy(alias, agyPath string, isGCP bool, projectID, region string, deskOpts switchOptions) int {
 	if !a.TTY {
 		return a.usageFor("login", "--via-agy requires an interactive terminal; use the default OAuth flow instead")
 	}
@@ -298,6 +309,7 @@ func (a *App) loginViaAgy(alias, agyPath string, isGCP bool, projectID, region s
 		tokenFile, _ = agy.ParseTokenFile(raw)
 	}
 
+	prevKeeper := a.currentDesktopKeeperHint()
 	result, err := a.Store.Upsert(raw, alias, true)
 	if err != nil {
 		return a.registryFailure(err, "could not save the new account")
@@ -337,7 +349,10 @@ func (a *App) loginViaAgy(alias, agyPath string, isGCP bool, projectID, region s
 	if err := a.ensureLiveInstallationID(result.Account.ID, claimLive); err != nil {
 		warnings = append(warnings, fmt.Sprintf("could not set the installation id: %v", err))
 	}
-	return a.finishLogin(result, report, warnings)
+	effectiveGCP := strings.EqualFold(strings.TrimSpace(effectiveAuth), agy.AuthMethodGCP) || strings.TrimSpace(tokenFile.ProjectID) != ""
+	deskRes, _ := a.syncDesktopForAccount(&result.Account, raw, effectiveGCP, deskOpts, prevKeeper)
+	warnings = append(warnings, deskRes.Warnings...)
+	return a.finishLoginWithDesktop(result, report, deskRes, warnings)
 }
 
 func isolatedAgyEnv(home string) []string {
@@ -392,16 +407,33 @@ func (a *App) existingRefreshToken(tokenFile agy.TokenFile) string {
 	return ""
 }
 
+func (a *App) currentDesktopKeeperHint() string {
+	keeper, err := a.desktopStateKeeper("")
+	if err != nil {
+		return ""
+	}
+	return keeper
+}
+
 func (a *App) finishLogin(result registry.UpsertResult, report agy.WriteReport, warnings []string) int {
+	return a.finishLoginWithDesktop(result, report, desktopSyncResult{}, warnings)
+}
+
+func (a *App) finishLoginWithDesktop(result registry.UpsertResult, report agy.WriteReport, deskRes desktopSyncResult, warnings []string) int {
 	if a.JSON {
 		for _, warning := range warnings {
 			a.warn("%s", warning)
 		}
-		if err := a.emitJSON(map[string]any{
+		payload := map[string]any{
 			"created": result.Created,
 			"account": result.Account,
 			"written": report.Written,
-		}); err != nil {
+		}
+		if deskRes.Switched || deskRes.Relaunched {
+			payload["desktop_switched"] = deskRes.Switched
+			payload["desktop_relaunched"] = deskRes.Relaunched
+		}
+		if err := a.emitJSON(payload); err != nil {
 			return a.failCode("output_error", "", "could not write JSON output")
 		}
 		return 0
@@ -414,10 +446,24 @@ func (a *App) finishLogin(result registry.UpsertResult, report agy.WriteReport, 
 	if len(report.Written) > 0 {
 		fmt.Fprintf(a.Out, "Wrote %s.\n", strings.Join(sourceNames(report.Written), " and "))
 	}
+	if deskRes.Switched {
+		if deskRes.RestoredProfile {
+			fmt.Fprintln(a.Out, "Restored Antigravity Desktop profile.")
+		} else {
+			fmt.Fprintln(a.Out, "Updated Antigravity Desktop state.")
+		}
+		if deskRes.Relaunched {
+			fmt.Fprintln(a.Out, "Relaunched Antigravity Desktop.")
+		}
+	}
 	for _, warning := range warnings {
 		fmt.Fprintf(a.Err, "warning: %s\n", warning)
 	}
-	fmt.Fprintln(a.Out, "Restart agy for the new account to take effect.")
+	if deskRes.Switched && !deskRes.Relaunched {
+		fmt.Fprintln(a.Out, "Restart agy and Antigravity Desktop for the new account to take effect.")
+	} else {
+		fmt.Fprintln(a.Out, "Restart agy for the new account to take effect.")
+	}
 	return 0
 }
 

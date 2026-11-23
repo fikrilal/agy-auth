@@ -20,6 +20,15 @@ func (a *App) cmdPath(args []string) int {
 		"keyring_user":      a.Storage.User,
 		"keyring_available": a.Storage.KeyringAvailable(),
 	}
+	if a.Storage.DesktopFilePath != "" {
+		payload["desktop_token_file"] = a.Storage.DesktopFilePath
+	}
+	if a.Desktop != nil {
+		payload["desktop_config"] = a.Desktop.ConfigDir
+		if a.Desktop.DataDir != "" {
+			payload["desktop_data"] = a.Desktop.DataDir
+		}
+	}
 	if a.JSON {
 		if err := a.emitJSON(payload); err != nil {
 			return a.failCode("output_error", "", "could not write JSON output")
@@ -30,6 +39,15 @@ func (a *App) cmdPath(args []string) int {
 	fmt.Fprintf(a.Out, "accounts:      %s\n", a.Store.AccountsDir)
 	fmt.Fprintf(a.Out, "encryption:    %s\n", a.Store.Vault.KeyPath)
 	fmt.Fprintf(a.Out, "agy token:     %s\n", a.Storage.FilePath)
+	if a.Storage.DesktopFilePath != "" {
+		fmt.Fprintf(a.Out, "desktop token: %s\n", a.Storage.DesktopFilePath)
+	}
+	if a.Desktop != nil {
+		fmt.Fprintf(a.Out, "desktop dir:   %s\n", a.Desktop.ConfigDir)
+		if a.Desktop.DataDir != "" {
+			fmt.Fprintf(a.Out, "desktop data:  %s\n", a.Desktop.DataDir)
+		}
+	}
 	fmt.Fprintf(a.Out, "keyring:       %s / %s\n", a.Storage.Service, a.Storage.User)
 	return 0
 }

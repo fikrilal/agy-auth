@@ -220,3 +220,75 @@ func TestKeyringRoundTrip(t *testing.T) {
 		t.Errorf("second delete: %v", err)
 	}
 }
+
+func TestDesktopTokenFileMirrorRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "jetski-standalone-oauth-token")
+	storage := &Storage{
+		Service:         "test",
+		User:            "test",
+		FilePath:        filepath.Join(dir, "antigravity-oauth-token"),
+		DesktopFilePath: desktopPath,
+		NoKeyring:       true,
+	}
+	raw := makeTokenFile(t, "user@example.com", "subject-1", "refresh-1", time.Now().Add(time.Hour).Format(time.RFC3339Nano))
+
+	if err := storage.WriteDesktopToken([]byte("not json")); err == nil {
+		t.Fatal("expected invalid token to be rejected")
+	}
+	if _, err := os.Stat(desktopPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("invalid token must not create desktop token file")
+	}
+
+	if err := storage.WriteDesktopToken(raw); err != nil {
+		t.Fatalf("WriteDesktopToken: %v", err)
+	}
+	got, err := os.ReadFile(desktopPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, raw) {
+		t.Fatal("desktop token content mismatch")
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(desktopPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("desktop token permissions = %o, want 0600", info.Mode().Perm())
+		}
+	}
+
+	if err := storage.DeleteDesktopToken(); err != nil {
+		t.Fatalf("DeleteDesktopToken: %v", err)
+	}
+	if _, err := os.Stat(desktopPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("desktop token still exists after delete: %v", err)
+	}
+	if err := storage.DeleteDesktopToken(); err != nil {
+		t.Fatalf("idempotent DeleteDesktopToken: %v", err)
+	}
+
+	// Empty DesktopFilePath is a no-op.
+	empty := &Storage{FilePath: filepath.Join(dir, "cli-token"), NoKeyring: true}
+	if err := empty.WriteDesktopToken(raw); err != nil {
+		t.Fatalf("empty WriteDesktopToken: %v", err)
+	}
+	if err := empty.DeleteDesktopToken(); err != nil {
+		t.Fatalf("empty DeleteDesktopToken: %v", err)
+	}
+}
+
+func TestDefaultDesktopTokenFilePathIsolation(t *testing.T) {
+	t.Setenv("AGY_AUTH_DESKTOP_TOKEN_FILE", "/custom/desktop-token")
+	t.Setenv("AGY_AUTH_AGY_TOKEN_FILE", "/custom/cli-token")
+	if got := defaultDesktopTokenFilePath(); got != "/custom/desktop-token" {
+		t.Fatalf("override desktop path = %q", got)
+	}
+
+	t.Setenv("AGY_AUTH_DESKTOP_TOKEN_FILE", "")
+	if got := defaultDesktopTokenFilePath(); got != "" {
+		t.Fatalf("expected empty desktop path when AGY_AUTH_AGY_TOKEN_FILE is overridden, got %q", got)
+	}
+}

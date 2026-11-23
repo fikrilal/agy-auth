@@ -163,6 +163,10 @@ Usage errors print `error:`, the command's `Usage:` block, and a `hint:` on stde
 | `AGY_AUTH_STORAGE=file` | Disable keyring access and use only the file backend |
 | `AGY_AUTH_AGY_TOKEN_FILE` | Override the agy fallback token path |
 | `AGY_AUTH_AGY_PATH` | Override the `agy` executable path used for OAuth client discovery and `login --via-agy` |
+| `AGY_AUTH_DESKTOP_TOKEN_FILE` | Override the Desktop standalone fallback token path (`~/.gemini/jetski-standalone-oauth-token`) |
+| `AGY_DESKTOP_HOME` | Override the Antigravity Desktop user-data directory |
+| `AGY_DESKTOP_DATA_DIR` | Override the Antigravity Desktop `language_server` data directory (`~/.gemini/antigravity`) |
+| `AGY_DESKTOP_BIN` | Override the Antigravity Desktop executable path |
 | `AGY_AUTH_CLIENT_ID` | Override the OAuth client ID |
 | `AGY_AUTH_CLIENT_SECRET` | Override the OAuth client secret |
 | `AGY_AUTH_PROJECT_ID` | Override the Code Assist project ID used for quota lookups |

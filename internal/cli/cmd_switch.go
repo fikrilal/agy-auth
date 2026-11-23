@@ -4,10 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
-	"github.com/fikrilal/agy-auth/internal/desktop"
 	"github.com/fikrilal/agy-auth/internal/registry"
 )
 
@@ -23,21 +21,24 @@ func (a *App) cmdSwitch(args []string) int {
 	if fs.NArg() > 1 {
 		return a.usageFor("switch", "switch accepts at most one query")
 	}
-	if *live {
-		if fs.NArg() > 0 {
-			return a.usageFor("switch", "switch --live does not take a query")
-		}
-		return a.runLive(liveModeSwitch, false)
-	}
-	if a.JSON && fs.NArg() == 0 {
-		return a.usageFor("switch", "switch --json requires a query")
-	}
-
 	tgt := strings.ToLower(strings.TrimSpace(*target))
 	switch tgt {
 	case "all", "cli", "desktop":
 	default:
 		return a.usageFor("switch", "target must be 'all', 'cli', or 'desktop'")
+	}
+	if *live {
+		if fs.NArg() > 0 {
+			return a.usageFor("switch", "switch --live does not take a query")
+		}
+		return a.runLive(liveModeSwitch, false, switchOptions{
+			Target:       tgt,
+			Relaunch:     *relaunch,
+			CloseDesktop: *closeDesktop,
+		})
+	}
+	if a.JSON && fs.NArg() == 0 {
+		return a.usageFor("switch", "switch --json requires a query")
 	}
 
 	reg, err := a.Store.Load()
@@ -114,7 +115,11 @@ func (a *App) printSwitchSummary(title string, res *switchResult) {
 		fmt.Fprintf(a.Out, "  %s Wrote %s.\n", a.dim("•"), strings.Join(res.Written, " and "))
 	}
 	if res.DesktopSwitched {
-		fmt.Fprintf(a.Out, "  %s Restored Antigravity Desktop profile.\n", a.dim("•"))
+		if res.DesktopProfileRestored {
+			fmt.Fprintf(a.Out, "  %s Restored Antigravity Desktop profile.\n", a.dim("•"))
+		} else {
+			fmt.Fprintf(a.Out, "  %s Updated Antigravity Desktop state.\n", a.dim("•"))
+		}
 		if res.DesktopRelaunched {
 			fmt.Fprintf(a.Out, "  %s Relaunched Antigravity Desktop.\n", a.dim("•"))
 		}
@@ -127,7 +132,11 @@ func (a *App) printSwitchSummary(title string, res *switchResult) {
 		}
 	}
 	if res.CLISwitched {
-		fmt.Fprintf(a.Out, "\n%s\n", a.dim("Tip: Restart running agy sessions to pick up the new credential."))
+		if res.DesktopSwitched && !res.DesktopRelaunched {
+			fmt.Fprintf(a.Out, "\n%s\n", a.dim("Tip: Restart running agy sessions and Antigravity Desktop to pick up the new credential."))
+		} else {
+			fmt.Fprintf(a.Out, "\n%s\n", a.dim("Tip: Restart running agy sessions to pick up the new credential."))
+		}
 	}
 }
 
@@ -138,14 +147,15 @@ type switchOptions struct {
 }
 
 type switchResult struct {
-	Account           *registry.Account
-	Target            string
-	Report            agy.WriteReport
-	Written           []string
-	CLISwitched       bool
-	DesktopSwitched   bool
-	DesktopRelaunched bool
-	Warnings          []string
+	Account                *registry.Account
+	Target                 string
+	Report                 agy.WriteReport
+	Written                []string
+	CLISwitched            bool
+	DesktopSwitched        bool
+	DesktopProfileRestored bool
+	DesktopRelaunched      bool
+	Warnings               []string
 }
 
 func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, opts switchOptions) (*switchResult, int) {
@@ -154,6 +164,8 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 	var warnings []string
 	var report agy.WriteReport
 	var written []string
+	var rawToken []byte
+	isGCP := strings.EqualFold(strings.TrimSpace(account.AuthMethod), agy.AuthMethodGCP) || strings.TrimSpace(account.ProjectID) != ""
 	cliSwitched := false
 
 	if tgt == "all" || tgt == "cli" {
@@ -164,6 +176,7 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 			}
 			warnings = append(warnings, fmt.Sprintf("no CLI credential stored for %s; skipped CLI switch", account.DisplayName()))
 		} else {
+			rawToken = raw
 			tf, err := agy.ParseTokenFile(raw)
 			if err != nil {
 				if tgt == "cli" {
@@ -207,6 +220,7 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 				if effectiveRegion == "" {
 					effectiveRegion = account.Region
 				}
+				isGCP = strings.EqualFold(strings.TrimSpace(effectiveAuth), agy.AuthMethodGCP) || strings.TrimSpace(effectiveProject) != ""
 				if err := a.Storage.SyncSettings(effectiveAuth, effectiveProject, effectiveRegion); err != nil {
 					warnings = append(warnings, fmt.Sprintf("settings: %v", err))
 				}
@@ -223,55 +237,15 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 				}
 			}
 		}
+	} else if raw, err := a.Store.LoadToken(account.ID); err == nil {
+		rawToken = raw
 	}
 
-	desktopSwitched := false
-	desktopRelaunched := false
-	if a.Desktop != nil && (tgt == "all" || tgt == "desktop") {
-		deskProfile := a.Store.DesktopProfilePath(account.ID)
-		hasDeskProfile := desktop.HasProfile(deskProfile)
-		if !hasDeskProfile {
-			if tgt == "desktop" {
-				return nil, a.failCode("desktop_profile_not_found", "Run `agy-auth add` while logged into Antigravity Desktop to capture its profile.", "no desktop profile stored for %s", account.DisplayName())
-			}
-		} else {
-			running, pid, _ := a.Desktop.IsRunning()
-			if running {
-				if opts.Relaunch || opts.CloseDesktop {
-					if err := a.Desktop.Terminate(pid, 5*time.Second); err != nil {
-						warnings = append(warnings, fmt.Sprintf("failed to stop Antigravity Desktop (PID %d): %v", pid, err))
-					}
-				} else {
-					if tgt == "desktop" {
-						return nil, a.failCode("desktop_running", "Close Antigravity Desktop first, or run with --relaunch.", "Antigravity Desktop is currently running (PID %d)", pid)
-					}
-					warnings = append(warnings, fmt.Sprintf("Antigravity Desktop is currently running (PID %d); desktop profile was not modified to prevent database corruption. Run with --relaunch to restart Desktop.", pid))
-				}
-			}
-
-			if stillRunning, _, _ := a.Desktop.IsRunning(); !stillRunning {
-				claimLive := a.retainDesktopUpdaterID()
-				if err := a.ensureDesktopUpdaterID(account.ID, claimLive, false); err != nil {
-					warnings = append(warnings, fmt.Sprintf("could not set the desktop updater id: %v", err))
-				}
-				if err := a.Desktop.Restore(deskProfile); err != nil {
-					if tgt == "desktop" {
-						return nil, a.failCode("desktop_restore_failed", "Check directory permissions for Antigravity desktop profile.", "could not restore desktop profile: %v", err)
-					}
-					warnings = append(warnings, fmt.Sprintf("could not restore desktop profile: %v", err))
-				} else {
-					desktopSwitched = true
-					if opts.Relaunch {
-						if err := a.Desktop.Relaunch(); err != nil {
-							warnings = append(warnings, fmt.Sprintf("could not relaunch Antigravity Desktop: %v", err))
-						} else {
-							desktopRelaunched = true
-						}
-					}
-				}
-			}
-		}
+	deskRes, code := a.syncDesktopForAccount(account, rawToken, isGCP, opts, "")
+	if code != 0 {
+		return nil, code
 	}
+	warnings = append(warnings, deskRes.Warnings...)
 
 	for i := range reg.Accounts {
 		if reg.Accounts[i].ID == account.ID {
@@ -298,13 +272,14 @@ func (a *App) switchAccount(reg *registry.Registry, account *registry.Account, o
 	}
 
 	return &switchResult{
-		Account:           account,
-		Target:            tgt,
-		Report:            report,
-		Written:           written,
-		CLISwitched:       cliSwitched,
-		DesktopSwitched:   desktopSwitched,
-		DesktopRelaunched: desktopRelaunched,
-		Warnings:          warnings,
+		Account:                account,
+		Target:                 tgt,
+		Report:                 report,
+		Written:                written,
+		CLISwitched:            cliSwitched,
+		DesktopSwitched:        deskRes.Switched,
+		DesktopProfileRestored: deskRes.RestoredProfile,
+		DesktopRelaunched:      deskRes.Relaunched,
+		Warnings:               warnings,
 	}, 0
 }

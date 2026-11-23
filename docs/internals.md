@@ -286,23 +286,29 @@ If Google rotates the client:
 
 ## Antigravity Desktop App support
 
-The Antigravity Desktop application runs as an Electron environment with separate user data in `~/.config/Antigravity/` (on Linux), `~/Library/Application Support/Antigravity` (on macOS), and `%APPDATA%\Antigravity` (on Windows).
+The Antigravity Desktop application runs as an Electron environment with separate user data in `~/.config/Antigravity/` (on Linux), `~/Library/Application Support/Antigravity` (on macOS), and `%APPDATA%\Antigravity` (on Windows), plus an embedded standalone `language_server` that stores its runtime data in `~/.gemini/antigravity/`.
 
-Authentication in the Desktop app is preserved across a whitelist of session files:
+Antigravity Desktop 2.x authenticates through its embedded `language_server`, sharing the OS keyring entry (`gemini` / `antigravity`) with the CLI and falling back to `~/.gemini/jetski-standalone-oauth-token` when the keyring is unavailable. On unified switches (`--target=all`), `agy-auth` mirrors the active credential to both the CLI fallback token file and `~/.gemini/jetski-standalone-oauth-token` (overrideable with `AGY_AUTH_DESKTOP_TOKEN_FILE`), even for accounts added via `agy-auth login` that do not have a captured Desktop profile snapshot yet.
+
+Desktop session and identity state is preserved across:
 - `Cookies` and `Cookies-journal` (Chromium encrypted SQLite database)
 - `Local Storage/leveldb/` (Web storage for session identity)
-- `app_storage.json` (Application preferences and last logged-in username)
+- `app_storage.json` (Application preferences and `agy.onboarding.lastLoginUsername` / `agy.onboarding.lastLoginIsGcpTos`)
 - `Preferences` (Chromium browser preferences)
-- `.updaterId` (Electron updater UUID, not a credential). Each account's copy is `desktop/<account-id>/.updaterId` (`0600`). `add` for `--target=all` or `--target=desktop` stores the live id on the account being captured when no other account has it. `switch` for those targets writes the selected account's id back before the session files. An account with no stored id claims the live id only when that id is still unowned after it is bound to the active desktop account, or to the previous account when the active one has no desktop profile. Otherwise `agy-auth` mints a new UUID. `--target=cli` does not change the live file. A snapshot that has no `.updaterId` does not delete the live one. Restart Desktop after switching; a running app keeps the old id in memory.
+- `credential-user-scope` (Authstore user-scope binding; located inside `ConfigDir` on macOS/Windows and `~/.config/antigravity/credential-user-scope` on case-sensitive Linux filesystems)
+- `.updaterId` (Electron updater UUID, not a credential). Each account's copy is `desktop/<account-id>/.updaterId` (`0600`). `add` for `--target=all` or `--target=desktop` stores the live id on the account being captured when no other account has it. `switch` and `login` write the selected account's id back when Desktop is stopped. `--target=cli` does not change the live file. A snapshot that has no `.updaterId` does not delete the live one.
+- `~/.gemini/antigravity/installation_id` (Desktop `language_server` installation UUID, not a credential). Each account's copy is `desktop/<account-id>/installation_id` (`0600`) and follows the same retain/claim/mint lifecycle when `~/.gemini/antigravity/` is present.
+
+When switching (`--target=all`) or logging in to an account that has no stored Desktop profile snapshot yet, and Desktop is installed, `agy-auth` clears stale `credential-user-scope`, updates `agy.onboarding.lastLoginUsername` and `agy.onboarding.lastLoginIsGcpTos` in `app_storage.json` (preserving all other keys), rotates `.updaterId` and Desktop `installation_id`, and supports `--close-desktop` / `--relaunch`. During `add`, if `app_storage.json` reports a different signed-in email than the active CLI credential, Desktop profile capture is skipped with a warning (or fails with `state_conflict` for `--target=desktop`) to prevent cross-account contamination.
 
 On Linux, Chromium encrypts session cookies with a master key stored in Secret Service (`application: Antigravity`, `schema: chrome_libsecret_os_crypt_password_v2`). Because this key is shared per user profile on the machine, snapshotted profiles in `~/.config/agy-auth/desktop/<account-id>/` decrypt seamlessly when swapped.
 
 ### Process protection and relaunch
 
 Modifying SQLite or LevelDB databases while the Electron app is running can lead to WAL lock conflicts or file corruption.
-- `agy-auth switch` checks if `antigravity` processes are active.
-- If running without `--relaunch`, CLI credentials switch cleanly and Desktop profile modification is safely deferred with an actionable warning.
-- With `--relaunch`, `agy-auth` gracefully terminates the main Desktop process (`SIGTERM`, 5-second deadline), swaps the profile files atomically, and starts Desktop detached in the background.
+- `agy-auth` detects Desktop processes accurately per platform: `ps -axo pid=,args=` on macOS (matching `Antigravity.app/Contents/MacOS/Antigravity` ahead of helpers and embedded `language_server`), `/proc` on Linux, and `tasklist` on Windows, always excluding its own PID and `agy` CLI processes.
+- If running without `--relaunch` or `--close-desktop`, CLI credentials switch cleanly and Desktop file modification is safely deferred with an actionable warning.
+- With `--relaunch`, `agy-auth` gracefully terminates the main Desktop process (`SIGTERM` on Unix / `taskkill` on Windows, 5-second deadline, waiting for embedded `language_server` and helper children to exit), swaps or syncs Desktop state atomically, and relaunches Desktop (via `open -a <bundle>` on macOS `.app` bundles, or detached spawn elsewhere).
 
 ## File permissions and atomic writes
 

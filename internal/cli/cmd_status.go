@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/desktop"
 )
 
 func (a *App) cmdStatus(args []string) int {
@@ -49,8 +50,10 @@ func (a *App) cmdStatus(args []string) int {
 	running := runningAgyCount()
 	var desktopRunning bool
 	var desktopPid int
+	var desktopLastLogin string
 	if a.Desktop != nil {
 		desktopRunning, desktopPid, _ = a.Desktop.IsRunning()
+		desktopLastLogin = desktop.LastLoginEmail(a.Desktop.ConfigDir)
 	}
 
 	now := a.now()
@@ -80,6 +83,15 @@ func (a *App) cmdStatus(args []string) int {
 		}
 		if a.Desktop != nil {
 			payload["desktop_config"] = a.Desktop.ConfigDir
+			if a.Desktop.DataDir != "" {
+				payload["desktop_data"] = a.Desktop.DataDir
+			}
+			if a.Storage.DesktopFilePath != "" {
+				payload["desktop_token_file"] = a.Storage.DesktopFilePath
+			}
+			if desktopLastLogin != "" {
+				payload["desktop_last_login"] = desktopLastLogin
+			}
 			payload["desktop_running"] = desktopRunning
 			if desktopRunning {
 				payload["desktop_pid"] = desktopPid
@@ -165,9 +177,17 @@ func (a *App) cmdStatus(args []string) int {
 	if a.Desktop != nil {
 		switch {
 		case desktopRunning:
-			fmt.Fprintf(a.Out, "Desktop:    running (PID %d); restart with --relaunch on switch\n", desktopPid)
+			if desktopLastLogin != "" {
+				fmt.Fprintf(a.Out, "Desktop:    running (PID %d, %s); restart with --relaunch on switch\n", desktopPid, desktopLastLogin)
+			} else {
+				fmt.Fprintf(a.Out, "Desktop:    running (PID %d); restart with --relaunch on switch\n", desktopPid)
+			}
 		default:
-			fmt.Fprintln(a.Out, "Desktop:    not running")
+			if desktopLastLogin != "" {
+				fmt.Fprintf(a.Out, "Desktop:    not running (last login: %s)\n", desktopLastLogin)
+			} else {
+				fmt.Fprintln(a.Out, "Desktop:    not running")
+			}
 		}
 	}
 	fmt.Fprintf(a.Out, "Accounts:   %d stored\n", len(reg.Accounts))

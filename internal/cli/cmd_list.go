@@ -31,7 +31,7 @@ func (a *App) cmdList(args []string) int {
 		if *all {
 			return a.usageFor("list", "list --live cannot be combined with --all")
 		}
-		return a.runLive(liveModeList, false)
+		return a.runLive(liveModeList, false, switchOptions{})
 	}
 	if *all {
 		if *activeOnly {
@@ -296,6 +296,12 @@ func (a *App) cmdAdd(args []string) int {
 			return a.usageFor("add", "%s", err)
 		}
 	}
+	tgt := strings.ToLower(strings.TrimSpace(*target))
+	switch tgt {
+	case "all", "cli", "desktop":
+	default:
+		return a.usageFor("add", "target must be 'all', 'cli', or 'desktop'")
+	}
 	isGCP := *gcp || strings.TrimSpace(*project) != ""
 	if !isGCP && strings.TrimSpace(*region) != "" {
 		return a.usageFor("add", "--region requires --gcp or --project")
@@ -341,33 +347,49 @@ func (a *App) cmdAdd(args []string) int {
 	if err != nil {
 		return a.registryFailure(err, "could not save the live agy credential")
 	}
-	if *target == "all" || *target == "cli" {
+	if tgt == "all" || tgt == "cli" {
 		if err := a.ensureLiveInstallationID(result.Account.ID, true); err != nil {
 			a.warn("could not set the installation id: %v", err)
 		}
 	}
 
 	desktopCaptured := false
-	if a.Desktop != nil && (*target == "all" || *target == "desktop") {
+	if a.Desktop != nil && (tgt == "all" || tgt == "desktop") {
 		if desktop.HasProfile(a.Desktop.ConfigDir) {
-			deskDest := a.Store.DesktopProfilePath(result.Account.ID)
-			if err := a.Desktop.Snapshot(deskDest); err == nil {
-				desktopCaptured = true
-				if err := a.ensureDesktopUpdaterID(result.Account.ID, true, true); err != nil {
-					a.warn("could not set the desktop updater id: %v", err)
+			deskEmail := desktop.LastLoginEmail(a.Desktop.ConfigDir)
+			if deskEmail != "" && result.Account.Email != "" && !strings.EqualFold(deskEmail, result.Account.Email) {
+				if tgt == "desktop" {
+					return a.failCode("state_conflict", "Sign in to the same account in both Antigravity Desktop and agy CLI before capturing.", "Antigravity Desktop is signed in as %s while agy CLI is signed in as %s", deskEmail, result.Account.Email)
 				}
-				result.Account.HasDesktop = true
-				if reg, err := a.Store.Load(); err == nil {
-					for i := range reg.Accounts {
-						if reg.Accounts[i].ID == result.Account.ID {
-							reg.Accounts[i].HasDesktop = true
-							break
-						}
+				a.warn("Antigravity Desktop is signed in as %s while agy CLI is signed in as %s; skipped Desktop profile capture", deskEmail, result.Account.Email)
+			} else {
+				deskDest := a.Store.DesktopProfilePath(result.Account.ID)
+				if err := a.Desktop.Snapshot(deskDest); err != nil {
+					if tgt == "desktop" {
+						return a.failCode("desktop_snapshot_failed", "Check permissions for Antigravity Desktop's profile directory.", "could not capture Antigravity Desktop profile: %v", err)
 					}
-					_ = a.Store.Save(reg)
+					a.warn("could not capture Antigravity Desktop profile: %v", err)
+				} else {
+					desktopCaptured = true
+					if err := a.ensureDesktopUpdaterID(result.Account.ID, true, true); err != nil {
+						a.warn("could not set the desktop updater id: %v", err)
+					}
+					if err := a.ensureDesktopInstallationID(result.Account.ID, true); err != nil {
+						a.warn("could not set the desktop installation id: %v", err)
+					}
+					result.Account.HasDesktop = true
+					if reg, err := a.Store.Load(); err == nil {
+						for i := range reg.Accounts {
+							if reg.Accounts[i].ID == result.Account.ID {
+								reg.Accounts[i].HasDesktop = true
+								break
+							}
+						}
+						_ = a.Store.Save(reg)
+					}
 				}
 			}
-		} else if *target == "desktop" {
+		} else if tgt == "desktop" {
 			return a.failCode("desktop_profile_not_found", "Log in to Antigravity Desktop first.", "no active Antigravity Desktop profile found")
 		}
 	}

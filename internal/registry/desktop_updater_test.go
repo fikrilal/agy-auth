@@ -74,3 +74,48 @@ func TestDesktopUpdaterOwnerReadError(t *testing.T) {
 		t.Fatal("expected a read error")
 	}
 }
+
+func TestDesktopInstallationIDStoredPerAccount(t *testing.T) {
+	store := NewStore(t.TempDir())
+	expiry := time.Now().Add(time.Hour)
+	first, err := store.Upsert(testToken(t, "first@example.com", "subject-1", "refresh-1", expiry), "first", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Upsert(testToken(t, "second@example.com", "subject-2", "refresh-2", expiry), "second", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const firstID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const secondID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	if err := store.SaveDesktopInstallationID(first.Account.ID, firstID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveDesktopInstallationID(second.Account.ID, secondID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveDesktopInstallationID(second.Account.ID, firstID); err == nil {
+		t.Fatal("expected duplicate desktop installation id to be rejected")
+	}
+	got, err := store.LoadDesktopInstallationID(first.Account.ID)
+	if err != nil || got != firstID {
+		t.Fatalf("first installation id = %q, err = %v", got, err)
+	}
+	owner, err := store.DesktopInstallationOwner(secondID, "")
+	if err != nil || owner != second.Account.ID {
+		t.Fatalf("owner = %q, err = %v", owner, err)
+	}
+	info, err := os.Stat(filepath.Join(store.DesktopDir, first.Account.ID, "installation_id"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %o", info.Mode().Perm())
+	}
+	if err := store.DeleteToken(first.Account.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.LoadDesktopInstallationID(first.Account.ID); !os.IsNotExist(err) {
+		t.Fatalf("deleted desktop installation id err = %v", err)
+	}
+}
