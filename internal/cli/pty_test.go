@@ -69,6 +69,9 @@ func TestLivePTY(t *testing.T) {
 		"AGY_AUTH_HOME="+storeDir,
 		"AGY_AUTH_STORAGE=file",
 		"AGY_AUTH_AGY_TOKEN_FILE="+tokenPath,
+		"AGY_DESKTOP_HOME="+filepath.Join(t.TempDir(), "desktop"),
+		"AGY_DESKTOP_DATA_DIR="+filepath.Join(t.TempDir(), "desktop-data"),
+		"AGY_AUTH_NO_UPDATE_CHECK=1",
 		"TERM=xterm-256color",
 		"NO_COLOR=1",
 	)
@@ -154,6 +157,8 @@ func TestSwitchInteractiveThenUpdatePromptPTY(t *testing.T) {
 		"AGY_AUTH_HOME="+storeDir,
 		"AGY_AUTH_STORAGE=file",
 		"AGY_AUTH_AGY_TOKEN_FILE="+tokenPath,
+		"AGY_DESKTOP_HOME="+filepath.Join(t.TempDir(), "desktop"),
+		"AGY_DESKTOP_DATA_DIR="+filepath.Join(t.TempDir(), "desktop-data"),
 		"AGY_AUTH_UPDATE_URL="+server.URL,
 		"TERM=xterm-256color",
 		"NO_COLOR=1",
@@ -176,9 +181,9 @@ func TestSwitchInteractiveThenUpdatePromptPTY(t *testing.T) {
 		read <- err
 	}()
 
-	// Wait for interactive picker to show
-	pickerDeadline := time.Now().Add(5 * time.Second)
-	for !strings.Contains(output.String(), "Select an account to activate") {
+	// Wait for interactive picker table to render before sending Enter
+	pickerDeadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(output.String(), "Select an account to activate") || !strings.Contains(output.String(), "second@example.com") {
 		if time.Now().After(pickerDeadline) {
 			t.Fatalf("interactive picker did not render: %q", output.String())
 		}

@@ -66,12 +66,13 @@ var commandSpecs = []CommandSpec{
 		Usage: []string{
 			"agy-auth login [--alias <alias>] [--auth-method <method>]",
 			"               [--gcp --project <id> [--region <region>]]",
-			"               [--no-browser] [--via-agy] [--agy <path>]",
+			"               [--no-browser] [--via-agy] [--agy <path>] [--relaunch] [--close-desktop]",
 		},
 		Description: "Add an account through Google OAuth. The default flow prints an authorization\n" +
 			"URL, opens a browser when possible, and asks for the code shown by\n" +
 			"antigravity.google/oauth-callback. Pass --gcp and --project <id> (with optional\n" +
-			"--region global|us|eu) to sign in with a Google Cloud project in Pay As You Go mode.",
+			"--region global|us|eu) to sign in with a Google Cloud project in Pay As You Go mode.\n" +
+			"When Antigravity Desktop is installed, login also synchronizes Desktop state.",
 		Options: []OptionSpec{
 			{Flag: "--alias <alias>", Description: "Short name used by switch/remove queries"},
 			{Flag: "--auth-method <name>", Description: "Stored auth_method value (default \"consumer\")"},
@@ -81,6 +82,8 @@ var commandSpecs = []CommandSpec{
 			{Flag: "--no-browser", Description: "Only print the authorization URL"},
 			{Flag: "--via-agy", Description: "Run agy in an isolated login directory; import only on success"},
 			{Flag: "--agy <path>", Description: "agy executable for OAuth client discovery or --via-agy (default: search PATH)"},
+			{Flag: "--relaunch", Description: "Relaunch Antigravity Desktop after logging in"},
+			{Flag: "--close-desktop", Description: "Gracefully close Antigravity Desktop before syncing"},
 		},
 		Examples: []string{
 			"agy-auth login --alias personal",

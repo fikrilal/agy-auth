@@ -31,22 +31,24 @@ var (
 // unavailable. agy-auth mirrors writes to both locations so switching works in
 // desktop and headless environments.
 type Storage struct {
-	Service      string
-	User         string
-	FilePath     string
-	SettingsPath string
-	NoKeyring    bool
-	Backup       *backup.Store
+	Service         string
+	User            string
+	FilePath        string
+	DesktopFilePath string
+	SettingsPath    string
+	NoKeyring       bool
+	Backup          *backup.Store
 }
 
 func DefaultStorage() *Storage {
 	tokenFile := defaultTokenFilePath()
 	return &Storage{
-		Service:      KeyringService,
-		User:         KeyringUser,
-		FilePath:     tokenFile,
-		SettingsPath: defaultSettingsFilePath(tokenFile),
-		NoKeyring:    os.Getenv("AGY_AUTH_STORAGE") == "file",
+		Service:         KeyringService,
+		User:            KeyringUser,
+		FilePath:        tokenFile,
+		DesktopFilePath: defaultDesktopTokenFilePath(),
+		SettingsPath:    defaultSettingsFilePath(tokenFile),
+		NoKeyring:       os.Getenv("AGY_AUTH_STORAGE") == "file",
 	}
 }
 
@@ -59,6 +61,24 @@ func defaultTokenFilePath() string {
 		return filepath.Join(".gemini", "antigravity-cli", "antigravity-oauth-token")
 	}
 	return filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
+}
+
+// defaultDesktopTokenFilePath resolves the standalone file fallback used by
+// Antigravity Desktop's embedded language_server. When AGY_AUTH_AGY_TOKEN_FILE
+// is overridden without AGY_AUTH_DESKTOP_TOKEN_FILE, it returns empty so
+// isolated CLI testing does not touch the user's real home directory.
+func defaultDesktopTokenFilePath() string {
+	if override := os.Getenv("AGY_AUTH_DESKTOP_TOKEN_FILE"); override != "" {
+		return override
+	}
+	if os.Getenv("AGY_AUTH_AGY_TOKEN_FILE") != "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".gemini", "jetski-standalone-oauth-token")
+	}
+	return filepath.Join(home, ".gemini", "jetski-standalone-oauth-token")
 }
 
 type Source string
@@ -180,6 +200,30 @@ func (s *Storage) Delete() error {
 		errs = append(errs, fmt.Errorf("file: %w", err))
 	}
 	return errors.Join(errs...)
+}
+
+// WriteDesktopToken mirrors the validated credential to Antigravity Desktop's
+// standalone language_server fallback token file when configured.
+func (s *Storage) WriteDesktopToken(raw []byte) error {
+	if s == nil || s.DesktopFilePath == "" {
+		return nil
+	}
+	if _, err := ParseTokenFile(raw); err != nil {
+		return err
+	}
+	return writeFileAtomic(s.DesktopFilePath, raw, 0o600)
+}
+
+// DeleteDesktopToken removes Antigravity Desktop's standalone fallback token
+// file when configured.
+func (s *Storage) DeleteDesktopToken() error {
+	if s == nil || s.DesktopFilePath == "" {
+		return nil
+	}
+	if err := os.Remove(s.DesktopFilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (s *Storage) KeyringAvailable() bool {

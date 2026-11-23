@@ -57,7 +57,10 @@ func New() (*App, error) {
 	if store.Backups != nil {
 		backupDir = store.Backups.Dir
 	}
-	deskMgr := desktop.NewManager("", "", backupDir)
+	var deskMgr *desktop.Manager
+	if !isIsolatedCLIOverride() {
+		deskMgr = desktop.NewManager("", "", backupDir)
+	}
 	usageClient := usage.NewClient(Version)
 	updateURL := defaultUpdateURL
 	if custom := os.Getenv("AGY_AUTH_UPDATE_URL"); custom != "" {
@@ -86,6 +89,13 @@ func New() (*App, error) {
 		StdoutFile:       os.Stdout,
 		StderrFile:       os.Stderr,
 	}, nil
+}
+
+func isIsolatedCLIOverride() bool {
+	return os.Getenv("AGY_AUTH_AGY_TOKEN_FILE") != "" &&
+		os.Getenv("AGY_DESKTOP_HOME") == "" &&
+		os.Getenv("AGY_DESKTOP_CONFIG_DIR") == "" &&
+		os.Getenv("AGY_DESKTOP_DATA_DIR") == ""
 }
 
 func (a *App) Run(args []string) int {

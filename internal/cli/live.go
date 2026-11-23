@@ -67,6 +67,7 @@ type liveState struct {
 	interval     time.Duration
 	gen          int
 	autoSwitched bool
+	switchOpts   switchOptions
 	digits       string
 	digitAt      time.Time
 	prevFrame    []string
@@ -372,7 +373,7 @@ func (a *App) maybeAutoSwitch(state *liveState, mode liveMode) string {
 	if candidate == nil {
 		return "Active account is out of quota; no available account."
 	}
-	action := a.liveSwitch(candidate.ID, candidate.displayName())
+	action := a.liveSwitchWithOpts(candidate.ID, candidate.displayName(), state.switchOpts)
 	if strings.HasPrefix(action, "Switched to") {
 		state.setActive(candidate.ID)
 		return fmt.Sprintf("Auto-switched to %s (quota exhausted).", candidate.displayName())
@@ -517,7 +518,7 @@ func quotaNextReset(row *accountRow) time.Time {
 	return next
 }
 
-func (a *App) runLive(mode liveMode, logout bool) int {
+func (a *App) runLive(mode liveMode, logout bool, switchOpts switchOptions) int {
 	command := mode.command()
 	if a.JSON {
 		return a.usageFor(command, "--live cannot be used with --json")
@@ -544,7 +545,7 @@ func (a *App) runLive(mode liveMode, logout bool) int {
 	if cache, ok := a.UsageFull.(*usage.FullCache); ok {
 		cache.SetTTL(interval)
 	}
-	state := &liveState{checked: map[string]bool{}, interval: interval}
+	state := &liveState{checked: map[string]bool{}, interval: interval, switchOpts: switchOpts}
 	rows, source, loadErr := a.loadLiveRows(mode, false)
 	state.apply(rows, source, loadErr, a.now(), state.interval)
 	state.gen = 1
@@ -660,7 +661,7 @@ func (a *App) handleLiveKey(state *liveState, key keyEvent, mode liveMode, logou
 		switch mode {
 		case liveModeSwitch:
 			if row := state.selectedRow(); row != nil {
-				action := a.liveSwitch(row.ID, row.displayName())
+				action := a.liveSwitchWithOpts(row.ID, row.displayName(), state.switchOpts)
 				state.action = action
 				if strings.HasPrefix(action, "Switched to") {
 					state.autoSwitched = true
@@ -706,8 +707,23 @@ func (a *App) liveChild() *App {
 }
 
 func (a *App) liveSwitch(id, label string) string {
+	return a.liveSwitchWithOpts(id, label, switchOptions{})
+}
+
+func (a *App) liveSwitchWithOpts(id, label string, opts switchOptions) string {
+	args := []string{"switch", id}
+	if opts.Target != "" {
+		args = append(args, "--target", opts.Target)
+	}
+	if opts.Relaunch {
+		args = append(args, "--relaunch")
+	}
+	if opts.CloseDesktop {
+		args = append(args, "--close-desktop")
+	}
+	args = append(args, "--json")
 	child := a.liveChild()
-	if code := child.Run([]string{"switch", id, "--json"}); code != 0 {
+	if code := child.Run(args); code != 0 {
 		return "Switch failed."
 	}
 	return fmt.Sprintf("Switched to %s.", label)

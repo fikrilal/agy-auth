@@ -1,8 +1,11 @@
 package desktop
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -201,5 +204,140 @@ func TestProcessOps(t *testing.T) {
 
 	if err := mgr.Relaunch(); err != nil || !startCalled {
 		t.Fatalf("Relaunch failed or did not call start: %v", err)
+	}
+}
+
+func TestParseDarwinProcesses(t *testing.T) {
+	psOutput := `
+  101 /Users/gray/.local/bin/agy
+  202 /bin/zsh -c grep /Applications/Antigravity.app/Contents/MacOS/Antigravity
+  303 /usr/bin/vim /Applications/Antigravity.app/Contents/MacOS/Antigravity
+15025 /Applications/Antigravity.app/Contents/Resources/bin/language_server --standalone --override_ide_name antigravity
+14375 /Applications/Antigravity.app/Contents/Frameworks/Antigravity Helper.app/Contents/MacOS/Antigravity Helper --type=gpu-process
+14373 /Applications/Antigravity.app/Contents/MacOS/Antigravity
+36099 /Applications/Antigravity.app/Contents/Frameworks/Antigravity Helper (Renderer).app/Contents/MacOS/Antigravity Helper (Renderer) --type=renderer
+40000 /Users/John Doe/Applications/Antigravity.app/Contents/MacOS/Antigravity --flag
+`
+	got := parseDarwinProcesses(psOutput, "/Applications/Antigravity.app/Contents/MacOS/Antigravity", 36099)
+	want := []int{14373, 40000, 15025, 14375}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseDarwinProcesses = %v, want %v", got, want)
+	}
+}
+
+func TestParseWindowsTasklist(t *testing.T) {
+	output := "\"Antigravity.exe\",\"4321\",\"Console\",\"1\",\"120,000 K\"\r\n\"Antigravity.exe\",\"8765\",\"Console\",\"1\",\"64,000 K\"\r\n"
+	got := parseWindowsTasklist(output, "Antigravity.exe", 8765)
+	want := []int{4321}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseWindowsTasklist = %v, want %v", got, want)
+	}
+
+	none := "INFO: No tasks are running which match the specified criteria.\r\n"
+	if got := parseWindowsTasklist(none, "Antigravity.exe", 1); len(got) != 0 {
+		t.Fatalf("expected empty pids, got %v", got)
+	}
+}
+
+func TestParseUnixProcesses(t *testing.T) {
+	output := `
+ 100 /usr/local/bin/agy
+ 200 /usr/local/bin/agy-auth switch work --relaunch
+ 300 /opt/antigravity/resources/bin/language_server --standalone
+ 400 /opt/antigravity/antigravity --type=renderer
+ 500 /opt/antigravity/antigravity
+`
+	got := parseUnixProcesses(output, "/opt/antigravity/antigravity", 200)
+	want := []int{500, 300, 400}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseUnixProcesses = %v, want %v", got, want)
+	}
+}
+
+func TestMacOSAppBundle(t *testing.T) {
+	if got := macOSAppBundle("/Applications/Antigravity.app/Contents/MacOS/Antigravity"); got != "/Applications/Antigravity.app" {
+		t.Fatalf("macOSAppBundle = %q", got)
+	}
+	if got := macOSAppBundle("/usr/local/bin/antigravity"); got != "" {
+		t.Fatalf("expected empty bundle for plain binary, got %q", got)
+	}
+}
+
+func TestScopeFileAndSyncAppStorage(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "Antigravity")
+	lowerScopeDir := filepath.Join(root, "antigravity")
+	scopeFile := filepath.Join(lowerScopeDir, ScopeFileName)
+	snapDir := filepath.Join(root, "snap")
+
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(lowerScopeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "app_storage.json"), []byte(`{"agy.onboarding.lastLoginUsername":"old@example.com","agy.onboarding.lastLoginIsGcpTos":"false","jetski.fontSize":14}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scopeFile, []byte("scope-user-1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := NewManager(configDir, "", "")
+	mgr.ScopeFile = scopeFile
+
+	if got := LastLoginEmail(configDir); got != "old@example.com" {
+		t.Fatalf("LastLoginEmail = %q", got)
+	}
+
+	if err := mgr.Snapshot(snapDir); err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	snapScope, err := os.ReadFile(filepath.Join(snapDir, ScopeFileName))
+	if err != nil || string(snapScope) != "scope-user-1" {
+		t.Fatalf("snapshot scope = %q, err = %v", string(snapScope), err)
+	}
+
+	if err := mgr.ClearUserScope(); err != nil {
+		t.Fatalf("ClearUserScope: %v", err)
+	}
+	if _, err := os.Stat(scopeFile); !os.IsNotExist(err) {
+		t.Fatalf("expected scope file removed, err = %v", err)
+	}
+
+	if err := mgr.SyncAppStorage("new@example.com", true); err != nil {
+		t.Fatalf("SyncAppStorage: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(configDir, "app_storage.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["agy.onboarding.lastLoginUsername"] != "new@example.com" {
+		t.Errorf("lastLoginUsername = %v", doc["agy.onboarding.lastLoginUsername"])
+	}
+	if doc["agy.onboarding.lastLoginIsGcpTos"] != "true" {
+		t.Errorf("lastLoginIsGcpTos = %#v, want string \"true\"", doc["agy.onboarding.lastLoginIsGcpTos"])
+	}
+	if doc["jetski.fontSize"] != float64(14) {
+		t.Errorf("unrelated setting clobbered: %#v", doc["jetski.fontSize"])
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(configDir, "app_storage.json"))
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("app_storage.json mode = %v, err = %v", info.Mode().Perm(), err)
+		}
+	}
+
+	// Restoring snapshot restores credential-user-scope to both ConfigDir and ScopeFile.
+	if err := mgr.Restore(snapDir); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	restoredScope, err := os.ReadFile(scopeFile)
+	if err != nil || string(restoredScope) != "scope-user-1" {
+		t.Fatalf("restored scope = %q, err = %v", string(restoredScope), err)
 	}
 }

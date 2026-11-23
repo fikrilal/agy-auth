@@ -23,7 +23,7 @@ func (a *App) cmdRemove(args []string) int {
 		if fs.NArg() > 0 || *all {
 			return a.usageFor("remove", "remove --live does not take selectors or --all")
 		}
-		return a.runLive(liveModeRemove, *logout)
+		return a.runLive(liveModeRemove, *logout, switchOptions{})
 	}
 	if *all && fs.NArg() > 0 {
 		return a.usageFor("remove", "remove --all cannot be combined with a query")
@@ -146,6 +146,9 @@ func (a *App) cmdRemove(args []string) int {
 			}
 		} else {
 			loggedOut = true
+			if err := a.Storage.DeleteDesktopToken(); err != nil {
+				a.warn("could not remove desktop fallback token: %v", err)
+			}
 			if err := a.Storage.SyncSettings(agy.AuthMethodConsumer, "", ""); err != nil {
 				a.warn("settings: %v", err)
 			}

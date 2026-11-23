@@ -63,7 +63,7 @@ After switching, restart `agy` and Antigravity Desktop. A running session keeps 
 |---------|-------------|
 | `agy-auth list [--all] [--active] [--no-sync] [--no-usage] [--live]` | List accounts, plan, and quota |
 | `agy-auth add [--alias <alias>] [--gcp --project <id> [--region <region>]] [--target all\|cli\|desktop]` | Save the account signed in to agy or Desktop |
-| `agy-auth login [--alias <alias>] [--gcp --project <id> [--region <region>]] [--no-browser] [--via-agy]` | Add an account through Google OAuth |
+| `agy-auth login [--alias <alias>] [--gcp --project <id> [--region <region>]] [--no-browser] [--via-agy] [--relaunch]` | Add an account through Google OAuth |
 | `agy-auth switch [<query>\|-] [--live] [--target all\|cli\|desktop] [--relaunch]` | Switch interactively, by query, or to the previous account |
 | `agy-auth rotate [--target all\|cli\|desktop] [--relaunch] [--force]` | Automatically switch to an account with remaining quota |
 | `agy-auth remove [<query>...] [--all] [--logout] [--yes] [--live]` | Remove stored accounts |
