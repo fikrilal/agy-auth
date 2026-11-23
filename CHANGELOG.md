@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-23
+
 ### Fixed
 
 - Fixed OAuth client discovery and token refresh failing (`refresh_failed`) when `agy` on `PATH` is a `#!` wrapper script (such as Homebrew's `brew install --cask antigravity-cli` command wrapper) by following `exec` target paths to the underlying binary, supporting `AGY_AUTH_AGY_PATH`, and surfacing an accurate discovery hint on `usage` failures.
