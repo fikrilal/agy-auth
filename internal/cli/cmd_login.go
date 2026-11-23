@@ -90,9 +90,9 @@ func (a *App) cmdLogin(args []string) int {
 		return a.loginViaAgy(*alias, *agyPath, isGCP, projectID, regionValue)
 	}
 	if err := oauth.EnsureClientForMethod(*agyPath, effectiveAuthMethod); err != nil {
-		hint := "Pass --agy <path>, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET."
+		hint := "Pass --agy <path>, set AGY_AUTH_AGY_PATH, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET."
 		if isGCP {
-			hint = "Pass --agy <path>, or set AGY_AUTH_GCP_CLIENT_ID and AGY_AUTH_GCP_CLIENT_SECRET."
+			hint = "Pass --agy <path>, set AGY_AUTH_AGY_PATH, or set AGY_AUTH_GCP_CLIENT_ID and AGY_AUTH_GCP_CLIENT_SECRET."
 		}
 		return a.failCode("oauth_error", hint, "could not discover the Antigravity OAuth client")
 	}
@@ -200,11 +200,14 @@ func (a *App) loginViaAgy(alias, agyPath string, isGCP bool, projectID, region s
 		}
 	}
 
-	binary := agyPath
+	binary := strings.TrimSpace(agyPath)
+	if binary == "" {
+		binary = strings.TrimSpace(os.Getenv("AGY_AUTH_AGY_PATH"))
+	}
 	if binary == "" {
 		found, err := exec.LookPath("agy")
 		if err != nil {
-			return a.failCode("agy_not_found", "Pass --agy <path>.", "agy executable not found in PATH")
+			return a.failCode("agy_not_found", "Pass --agy <path> or set AGY_AUTH_AGY_PATH.", "agy executable not found in PATH")
 		}
 		binary = found
 	}

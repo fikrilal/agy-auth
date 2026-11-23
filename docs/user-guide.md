@@ -50,7 +50,7 @@ Account tables show `PLAN`, `5H`, `WEEKLY`, `GROUP`, `5H RESET`, and `WEEKLY RES
 
 ## OAuth login
 
-`agy-auth login` uses the same public OAuth client that Antigravity CLI uses. The client ID and secret are discovered from your installed `agy` binary at runtime; this repository does not embed them. If discovery fails, set `AGY_AUTH_CLIENT_ID` and `AGY_AUTH_CLIENT_SECRET`, or use `--via-agy`. The command prints an authorization URL (and opens a browser when possible), then asks for the authorization code shown at `antigravity.google/oauth-callback`.
+`agy-auth login` uses the same public OAuth client that Antigravity CLI uses. The client ID and secret are discovered from your installed `agy` binary at runtime (including following `#!` wrapper scripts such as Homebrew's Cask command wrapper); this repository does not embed them. If discovery fails, set `AGY_AUTH_AGY_PATH` to the `agy` binary, set `AGY_AUTH_CLIENT_ID` and `AGY_AUTH_CLIENT_SECRET`, or use `--via-agy`. The command prints an authorization URL (and opens a browser when possible), then asks for the authorization code shown at `antigravity.google/oauth-callback`.
 
 The flow uses PKCE (`S256`), `access_type=offline`, and `prompt=consent` so Google returns a refresh token. The account is added and activated without deleting the current credential first. For Google Cloud project (**Pay As You Go**) accounts, pass `--gcp --project <project-id> [--region global|us|eu]` (or run `agy-auth login --gcp` interactively to be prompted for the project ID and region); the same flags work with `agy-auth add` and `agy-auth import`.
 
@@ -162,6 +162,7 @@ Usage errors print `error:`, the command's `Usage:` block, and a `hint:` on stde
 | `AGY_AUTH_HOME` | Override the registry directory |
 | `AGY_AUTH_STORAGE=file` | Disable keyring access and use only the file backend |
 | `AGY_AUTH_AGY_TOKEN_FILE` | Override the agy fallback token path |
+| `AGY_AUTH_AGY_PATH` | Override the `agy` executable path used for OAuth client discovery and `login --via-agy` |
 | `AGY_AUTH_CLIENT_ID` | Override the OAuth client ID |
 | `AGY_AUTH_CLIENT_SECRET` | Override the OAuth client secret |
 | `AGY_AUTH_PROJECT_ID` | Override the Code Assist project ID used for quota lookups |

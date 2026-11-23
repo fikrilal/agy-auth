@@ -4028,3 +4028,30 @@ func TestListAutoSyncWithoutIDTokenDoesNotDuplicateAccount(t *testing.T) {
 		t.Error("stored snapshot was not refreshed in place")
 	}
 }
+
+func TestUsageDiscoveryFailureHintMentionsAgyPath(t *testing.T) {
+	env := newTestEnv(t, true)
+	app, _, errOut := env.app("")
+	if code := app.Run([]string{"add", "--alias", "personal"}); code != 0 {
+		t.Fatalf("add exit = %d, stderr = %s", code, errOut)
+	}
+
+	app, out, _ := env.app("")
+	app.UsageGroups = &testGroupsProvider{
+		err: fmt.Errorf("%w: %w", usage.ErrRefresh, oauth.ErrClientDiscovery),
+	}
+	code := app.Run([]string{"usage", "--json"})
+	if code != 1 {
+		t.Fatalf("usage --json exit = %d, want 1", code)
+	}
+	envl := decodeTestEnvelope(t, out)
+	if envl.Error == nil {
+		t.Fatal("expected error envelope")
+	}
+	if envl.Error.Code != "credential_error" {
+		t.Errorf("error code = %q, want credential_error", envl.Error.Code)
+	}
+	if !strings.Contains(envl.Error.Hint, "AGY_AUTH_AGY_PATH") {
+		t.Errorf("error hint = %q, want mention of AGY_AUTH_AGY_PATH", envl.Error.Hint)
+	}
+}

@@ -3,6 +3,8 @@ package oauth
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -392,5 +394,79 @@ func TestRefreshForMethodNoCrossClientFallback(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("expected single refresh attempt without cross-client fallback, got %d requests", calls)
+	}
+}
+
+func TestResolveAgyBinaryPathUnwrapsHomebrewAndShellWrappers(t *testing.T) {
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "Caskroom", "antigravity-cli", "1.5.14", "antigravity")
+	if err := os.MkdirAll(filepath.Dir(realBin), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realBin, []byte("ELF-or-MachO-binary-placeholder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exact Homebrew Cask wrapper format from Issue #3.
+	brewWrapper := filepath.Join(dir, "brew-agy")
+	brewScript := fmt.Sprintf("#!/bin/bash\nAGY_CLI_DISABLE_AUTO_UPDATE=\"true\" exec %q  \"$@\"\n", realBin)
+	if err := os.WriteFile(brewWrapper, []byte(brewScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveAgyBinaryPath(brewWrapper); got != realBin {
+		t.Errorf("resolveAgyBinaryPath(brewWrapper) = %q, want %q", got, realBin)
+	}
+
+	// Chained wrapper with exec -a and single quotes.
+	outerWrapper := filepath.Join(dir, "outer-agy")
+	outerScript := fmt.Sprintf("#!/usr/bin/env sh\n# comment line\nexport FOO=bar\nexec -a \"$0\" '%s' \"$@\"\n", brewWrapper)
+	if err := os.WriteFile(outerWrapper, []byte(outerScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveAgyBinaryPath(outerWrapper); got != realBin {
+		t.Errorf("resolveAgyBinaryPath(outerWrapper) = %q, want %q", got, realBin)
+	}
+
+	// Relative exec target resolved against the wrapper's directory.
+	relWrapper := filepath.Join(dir, "rel-agy")
+	relScript := "#!/bin/sh\nexec ./Caskroom/antigravity-cli/1.5.14/antigravity \"$@\"\n"
+	if err := os.WriteFile(relWrapper, []byte(relScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveAgyBinaryPath(relWrapper); got != realBin {
+		t.Errorf("resolveAgyBinaryPath(relWrapper) = %q, want %q", got, realBin)
+	}
+
+	// Self-referencing cycle must terminate cleanly without hanging.
+	cycleWrapper := filepath.Join(dir, "cycle-agy")
+	cycleScript := fmt.Sprintf("#!/bin/sh\nexec %q \"$@\"\n", cycleWrapper)
+	if err := os.WriteFile(cycleWrapper, []byte(cycleScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveAgyBinaryPath(cycleWrapper); got != cycleWrapper {
+		t.Errorf("resolveAgyBinaryPath(cycleWrapper) = %q, want %q", got, cycleWrapper)
+	}
+}
+
+func TestEnsureClientForMethodUsesAgyPathEnvAndSentinelError(t *testing.T) {
+	oldID, oldSecret := ClientID, ClientSecret
+	ClientID, ClientSecret = "", ""
+	t.Cleanup(func() {
+		ClientID, ClientSecret = oldID, oldSecret
+	})
+
+	dir := t.TempDir()
+	missingBin := filepath.Join(dir, "nonexistent-agy")
+	t.Setenv("AGY_AUTH_AGY_PATH", missingBin)
+
+	err := EnsureClientForMethod("", agy.AuthMethodConsumer)
+	if err == nil {
+		t.Fatal("expected error when AGY_AUTH_AGY_PATH points to nonexistent binary")
+	}
+	if !errors.Is(err, ErrClientDiscovery) {
+		t.Errorf("err = %v; want errors.Is(_, ErrClientDiscovery)", err)
+	}
+	if !strings.Contains(err.Error(), "nonexistent-agy") {
+		t.Errorf("expected error to reference AGY_AUTH_AGY_PATH target, got %v", err)
 	}
 }

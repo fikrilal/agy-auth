@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,15 @@ import (
 )
 
 var clientMu sync.RWMutex
+
+// ErrClientDiscovery reports that the embedded Antigravity OAuth client could
+// not be discovered from the agy binary or environment overrides.
+var ErrClientDiscovery = errors.New("Antigravity OAuth client discovery failed")
+
+const (
+	maxWrapperHops  = 3
+	maxWrapperBytes = 4096
+)
 
 // Antigravity CLI's OAuth client is embedded in the installed agy binary. This
 // repository does not embed the client ID or secret; they are discovered from
@@ -356,7 +366,10 @@ func ensureClient(agyPath, authMethod string, requireTarget bool) error {
 		return nil
 	}
 
-	path := agyPath
+	path := strings.TrimSpace(agyPath)
+	if path == "" {
+		path = strings.TrimSpace(os.Getenv("AGY_AUTH_AGY_PATH"))
+	}
 	if path == "" {
 		found, err := exec.LookPath("agy")
 		if err != nil {
@@ -364,18 +377,19 @@ func ensureClient(agyPath, authMethod string, requireTarget bool) error {
 				return nil
 			}
 			if isGCP {
-				return errors.New("agy executable not found; set AGY_AUTH_GCP_CLIENT_ID and AGY_AUTH_GCP_CLIENT_SECRET, or use --via-agy")
+				return fmt.Errorf("%w: agy executable not found; set AGY_AUTH_AGY_PATH, or AGY_AUTH_GCP_CLIENT_ID and AGY_AUTH_GCP_CLIENT_SECRET, or use --via-agy", ErrClientDiscovery)
 			}
-			return errors.New("agy executable not found; set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET, or use --via-agy")
+			return fmt.Errorf("%w: agy executable not found; set AGY_AUTH_AGY_PATH, or AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET, or use --via-agy", ErrClientDiscovery)
 		}
 		path = found
 	}
+	path = resolveAgyBinaryPath(path)
 	file, err := os.Open(path)
 	if err != nil {
 		if !needTarget {
 			return nil
 		}
-		return fmt.Errorf("open agy binary: %w", err)
+		return fmt.Errorf("%w: open agy binary: %v", ErrClientDiscovery, err)
 	}
 	defer file.Close()
 
@@ -384,7 +398,7 @@ func ensureClient(agyPath, authMethod string, requireTarget bool) error {
 		if !needTarget {
 			return nil
 		}
-		return fmt.Errorf("discover the Antigravity OAuth client from %s: %w", path, err)
+		return fmt.Errorf("%w: discover the Antigravity OAuth client from %s: %v", ErrClientDiscovery, path, err)
 	}
 	if ClientID == "" && discClientID != "" {
 		ClientID = discClientID
@@ -399,12 +413,173 @@ func ensureClient(agyPath, authMethod string, requireTarget bool) error {
 		GCPClientSecret = discGCPSecret
 	}
 	if isGCP && (GCPClientID == "" || GCPClientSecret == "") {
-		return fmt.Errorf("discover the Antigravity GCP OAuth client from %s: GCP OAuth client credentials not found", path)
+		return fmt.Errorf("%w: discover the Antigravity GCP OAuth client from %s: GCP OAuth client credentials not found", ErrClientDiscovery, path)
 	}
 	if !isGCP && (ClientID == "" || ClientSecret == "") {
-		return fmt.Errorf("discover the Antigravity OAuth client from %s: Antigravity OAuth client credentials not found", path)
+		return fmt.Errorf("%w: discover the Antigravity OAuth client from %s: Antigravity OAuth client credentials not found", ErrClientDiscovery, path)
 	}
 	return nil
+}
+
+// resolveAgyBinaryPath follows shell wrapper scripts (such as Homebrew Cask
+// command wrappers that exec the real binary) up to maxWrapperHops times.
+func resolveAgyBinaryPath(path string) string {
+	current := strings.TrimSpace(path)
+	if current == "" {
+		return path
+	}
+	seen := make(map[string]bool, maxWrapperHops+1)
+	for hop := 0; hop < maxWrapperHops; hop++ {
+		cleaned := filepath.Clean(current)
+		if seen[cleaned] {
+			break
+		}
+		seen[cleaned] = true
+
+		file, err := os.Open(current)
+		if err != nil {
+			break
+		}
+		buf := make([]byte, maxWrapperBytes)
+		n, readErr := file.Read(buf)
+		_ = file.Close()
+		if n < 2 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
+			break
+		}
+		head := bytes.TrimPrefix(buf[:n], []byte("\xef\xbb\xbf"))
+		if !bytes.HasPrefix(head, []byte("#!")) {
+			break
+		}
+		target := parseWrapperExecTarget(string(head), filepath.Dir(current))
+		if target == "" {
+			break
+		}
+		info, statErr := os.Stat(target)
+		if statErr != nil || info.IsDir() {
+			break
+		}
+		current = target
+	}
+	return current
+}
+
+func parseWrapperExecTarget(script, baseDir string) string {
+	for _, rawLine := range strings.Split(script, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		tokens := splitShellTokens(line)
+		for i := 0; i < len(tokens); i++ {
+			tok := tokens[i]
+			if isShellEnvAssignment(tok) {
+				continue
+			}
+			if tok != "exec" {
+				break
+			}
+			i++
+			for i < len(tokens) {
+				arg := tokens[i]
+				if arg == "--" {
+					i++
+					break
+				}
+				if arg == "-a" {
+					i += 2
+					continue
+				}
+				if strings.HasPrefix(arg, "-") {
+					i++
+					continue
+				}
+				break
+			}
+			if i >= len(tokens) {
+				break
+			}
+			candidate := strings.TrimSpace(tokens[i])
+			if candidate == "" || strings.Contains(candidate, "$") {
+				break
+			}
+			if !filepath.IsAbs(candidate) && baseDir != "" {
+				candidate = filepath.Join(baseDir, candidate)
+			}
+			return candidate
+		}
+	}
+	return ""
+}
+
+func isShellEnvAssignment(token string) bool {
+	eq := strings.IndexByte(token, '=')
+	if eq <= 0 {
+		return false
+	}
+	for i := 0; i < eq; i++ {
+		c := token[i]
+		if i == 0 && c >= '0' && c <= '9' {
+			return false
+		}
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func splitShellTokens(line string) []string {
+	var tokens []string
+	var cur strings.Builder
+	inToken := false
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if quote != 0 {
+			if c == '\\' && quote == '"' && i+1 < len(line) {
+				i++
+				cur.WriteByte(line[i])
+				continue
+			}
+			if c == quote {
+				quote = 0
+				continue
+			}
+			cur.WriteByte(c)
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+			inToken = true
+		case ' ', '\t', '\r':
+			if inToken {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+				inToken = false
+			}
+		case ';', '&', '|':
+			if inToken {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+				inToken = false
+			}
+		default:
+			if c == '#' && !inToken {
+				return tokens
+			}
+			if c == '\\' && i+1 < len(line) {
+				i++
+				c = line[i]
+			}
+			cur.WriteByte(c)
+			inToken = true
+		}
+	}
+	if inToken {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
 }
 
 func scanCandidates(reader io.Reader) (ids, secrets map[string]bool, err error) {

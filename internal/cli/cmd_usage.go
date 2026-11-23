@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/oauth"
 	"github.com/fikrilal/agy-auth/internal/registry"
 	"github.com/fikrilal/agy-auth/internal/usage"
 )
@@ -359,6 +360,9 @@ func (a *App) quotaFailure(err error, label string) int {
 	code := "quota_error"
 	hint := "Try again later; `agy-auth list` still shows the shared quota summary."
 	switch {
+	case errors.Is(err, oauth.ErrClientDiscovery):
+		code = "credential_error"
+		hint = "Set AGY_AUTH_AGY_PATH to the agy binary, or set AGY_AUTH_CLIENT_ID and AGY_AUTH_CLIENT_SECRET."
 	case errors.Is(err, usage.ErrMissingAuth), errors.Is(err, usage.ErrRefresh), errors.Is(err, usage.ErrAuth):
 		code = "credential_error"
 		hint = "Sign in again with `agy-auth login`."

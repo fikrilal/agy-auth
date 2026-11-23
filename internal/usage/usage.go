@@ -372,14 +372,14 @@ func (c *Client) refresh(ctx context.Context, token *agy.TokenFile) (string, tim
 	if c.RefreshToken != nil {
 		accessToken, expiry, err := c.RefreshToken(ctx, refreshToken)
 		if err != nil {
-			return "", time.Time{}, fmt.Errorf("%w: %v", ErrRefresh, err)
+			return "", time.Time{}, fmt.Errorf("%w: %w", ErrRefresh, err)
 		}
 		return accessToken, expiry, nil
 	}
 
 	response, err := oauth.RefreshForMethod(ctx, refreshToken, token.AuthMethod)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("%w: %v", ErrRefresh, err)
+		return "", time.Time{}, fmt.Errorf("%w: %w", ErrRefresh, err)
 	}
 	expiresIn := response.ExpiresIn
 	if expiresIn <= 0 {

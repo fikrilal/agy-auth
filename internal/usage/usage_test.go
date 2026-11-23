@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fikrilal/agy-auth/internal/agy"
+	"github.com/fikrilal/agy-auth/internal/oauth"
 )
 
 var usageTestNow = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
@@ -506,5 +507,27 @@ func TestFetchGCPTokenUsesTokenProjectAndPayGoPlan(t *testing.T) {
 	}
 	if snapshot.Plan != "PayGo" {
 		t.Errorf("plan = %q, want PayGo", snapshot.Plan)
+	}
+}
+
+func TestRefreshPreservesClientDiscoveryError(t *testing.T) {
+	client := &Client{
+		Now: func() time.Time { return usageTestNow },
+		RefreshToken: func(context.Context, string) (string, time.Time, error) {
+			return "", time.Time{}, oauth.ErrClientDiscovery
+		},
+	}
+	_, err := client.Fetch(context.Background(), "acct_1", usageTestToken(usageTestNow.Add(-time.Hour)))
+	if err == nil {
+		t.Fatal("expected refresh error")
+	}
+	if !errors.Is(err, ErrRefresh) {
+		t.Errorf("expected errors.Is(err, ErrRefresh), got %v", err)
+	}
+	if !errors.Is(err, oauth.ErrClientDiscovery) {
+		t.Errorf("expected errors.Is(err, oauth.ErrClientDiscovery), got %v", err)
+	}
+	if got := ShortError(err); got != "refresh_failed" {
+		t.Errorf("ShortError(err) = %q, want refresh_failed", got)
 	}
 }

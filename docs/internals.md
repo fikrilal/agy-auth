@@ -242,7 +242,7 @@ This recreates entries from the raw credentials (email and subject come from the
 
 ## OAuth login
 
-The login flow uses the public Antigravity/Gemini OAuth client embedded in the agy binary. The repository does not contain the client ID or secret; both are discovered at runtime from the installed `agy` binary by matching SHA-256 fingerprints. Override them with `AGY_AUTH_CLIENT_ID` and `AGY_AUTH_CLIENT_SECRET` if Google rotates them.
+The login flow uses the public Antigravity/Gemini OAuth client embedded in the agy binary. The repository does not contain the client ID or secret; both are discovered at runtime from the installed `agy` binary by matching SHA-256 fingerprints (automatically unwrapping `#!` wrapper scripts that `exec` the target binary, such as Homebrew Cask wrappers). Override the executable path with `AGY_AUTH_AGY_PATH`, or override the client credentials directly with `AGY_AUTH_CLIENT_ID` and `AGY_AUTH_CLIENT_SECRET` (or `AGY_AUTH_GCP_CLIENT_ID` and `AGY_AUTH_GCP_CLIENT_SECRET`) if Google rotates them.
 
 - authorization endpoint: `https://accounts.google.com/o/oauth2/auth`
 - token endpoint: `https://oauth2.googleapis.com/token`
