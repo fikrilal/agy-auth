@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-23
+
+### Added
+
+- Antigravity Desktop 2.x (`language_server`) credential and state alignment: mirrors tokens to `~/.gemini/jetski-standalone-oauth-token` (`AGY_AUTH_DESKTOP_TOKEN_FILE`), snapshots/restores/clears `credential-user-scope`, syncs `agy.onboarding.lastLoginUsername` and `agy.onboarding.lastLoginIsGcpTos` in `app_storage.json`, and isolates per-account Desktop `~/.gemini/antigravity/installation_id`.
+- Unified Desktop switching and `--relaunch` / `--close-desktop` support across `switch`, `rotate`, `login`, and `switch --live`, including accounts added via `login` without a prior Desktop snapshot.
+- CLI-vs-Desktop email mismatch protection on `add`, and Desktop config/data/token paths plus last signed-in email in `status` and `path`.
+
+### Fixed
+
+- Fixed Antigravity Desktop process detection, graceful shutdown, and `.app` bundle relaunch across macOS (`ps` + `open -a`), Linux (`/proc` including `language_server` children), and Windows (`tasklist` / `taskkill`).
+
 ## [0.5.2] - 2026-11-23
 
 ### Fixed

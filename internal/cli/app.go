@@ -17,7 +17,7 @@ import (
 	"golang.org/x/term"
 )
 
-var Version = "0.5.2"
+var Version = "0.5.3"
 
 type App struct {
 	In               io.Reader
